@@ -32,6 +32,7 @@ export const UPGRADES=[
  {id:'tips',name:'贴心服务',emoji:'♥',base:330,max:3,desc:'每级小费率额外 +5%'}
 ];
 export const CUSTOMERS=['小夏','柚子','阿雅','艾米','林先生','木子','桃桃','阿泽','小松','贝拉','若林','浅浅','星野','橘子','苏苏','雨果'];
+export const DAILY_FEATURE=Object.freeze({fee:38,weight:3,markup:.18});
 export const DEFAULT_PANTRY={tea:7,lemon:7,bread:6,berries:6,lettuce:7,tomato:9,coffee:2,milk:2,pasta:0,cheese:0,rice:0,mushroom:0,cream:0,eggs:0};
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,Number.isFinite(n)?n:min));
 const integer=(n,min=0,max=1000000)=>Math.round(clamp(Number(n),min,max));
@@ -47,10 +48,10 @@ export function createGame(seed=20261105){
  return {version:SAVE_VERSION,seed:integer(seed,0,4294967295)>>>0,day:1,phase:'planning',money:270,rep:65,xp:0,totalServed:0,totalMissed:0,
  pantry:{...DEFAULT_PANTRY},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
  elapsed:0,duration:110,scheduled:[],orders:[],idSeq:0,
- today:{served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0},
+ today:{served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0},
  lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0,platingPerfect:0,platingGood:0,platingAttempts:0,platingBestStreak:0,platingStreak:0,
  assistantHired:false,assistantCooldown:0,assistantServed:0,todayAssistantServed:0,
- contract:null,contractsWon:0,contractsLost:0};
+ contract:null,contractsWon:0,contractsLost:0,dailySpecial:null,specialsLaunched:0,specialServed:0};
 }
 export function rng(state){state.seed=(Math.imul(state.seed,1664525)+1013904223)>>>0;return state.seed/4294967296;}
 /**
@@ -175,12 +176,46 @@ export function buyUpgrade(state,id){const item=byId(UPGRADES,id);if(!item)retur
  const price=upgradePrice(state,id);if(state.money<price)return{ok:false,error:'金币不足'};
  state.money-=price;state.upgrades[id]++;state.today.spent+=price;return{ok:true,item,price};
 }
+/** Daily menu spotlight: one paid marketing campaign per service day.
+ * Choosing it shifts real guest demand and changes walk-in sale prices.
+ * Contracted catering stays at its agreed base price.
+ */
+export function chooseDailySpecial(state,recipeId){
+ if(state.phase!=='planning')return{ok:false,error:'只能在开业前确定今日主推'};
+ const recipe=recipeById(recipeId);
+ if(!recipe||recipe.day>state.day)return{ok:false,error:'今日尚未解锁这道菜'};
+ if(state.dailySpecial===recipeId)return{ok:true,recipe,spent:0,unchanged:true};
+ const fee=state.dailySpecial?0:DAILY_FEATURE.fee;
+ if(state.money<fee)return{ok:false,error:'营销预算不足，请先保留必要资金'};
+ state.money-=fee;state.today.spent+=fee;
+ state.dailySpecial=recipeId;
+ return {ok:true,recipe,spent:fee,unchanged:false};
+}
+export function salePrice(state,recipeOrId,isContract=false){
+ const recipe=typeof recipeOrId==='string'?recipeById(recipeOrId):recipeOrId;
+ if(!recipe)return 0;
+ return !isContract&&state.dailySpecial===recipe.id?
+  Math.round(recipe.price*(1+DAILY_FEATURE.markup)):recipe.price;
+}
+export function featuredDemandShare(state){
+ const available=recipesAvailable(state);
+ if(!state.dailySpecial||!available.some(x=>x.id===state.dailySpecial))return 0;
+ return DAILY_FEATURE.weight/(available.length-1+DAILY_FEATURE.weight);
+}
+function pickWalkInDish(state,available){
+ if(!state.dailySpecial)return available[Math.floor(rng(state)*available.length)];
+ const pool=available.filter(x=>x.id!==state.dailySpecial);
+ const choice=rng(state)*(DAILY_FEATURE.weight+pool.length);
+ return choice<DAILY_FEATURE.weight?recipeById(state.dailySpecial):
+  pool[Math.min(pool.length-1,Math.floor(choice-DAILY_FEATURE.weight))];
+}
 export function startDay(state){
  if(state.phase!=='planning')return{ok:false,error:'请先完成当前营业日'};
  const available=recipesAvailable(state),count=7+Math.min(5,Math.floor(state.day/2))+(state.upgrades.marketing||0)*2;
+ if(state.dailySpecial)state.specialsLaunched=(state.specialsLaunched||0)+1;
  state.orders=[];state.scheduled=[];state.elapsed=0;state.duration=0;
  for(let i=0;i<count;i++){
-  const recipe=available[Math.floor(rng(state)*available.length)];
+  const recipe=pickWalkInDish(state,available);
   const customer=CUSTOMERS[Math.floor(rng(state)*CUSTOMERS.length)];
   const arrival=3+i*8.7+rng(state)*2.3;
   const patience=34+rng(state)*14+(state.upgrades.ambience||0)*8;
@@ -221,9 +256,11 @@ export function serveOrder(state,id,{platingScore=null}={}){
  if(index<0)return{ok:false,error:'订单尚未完成'};
  const order=state.orders[index],recipe=recipeById(order.recipe);
  const quality=order.patience/Math.max(1,order.maxPatience);
- const tip=Math.round(recipe.price*((quality>.5?.13:.05)+(state.upgrades.tips||0)*.05));
- const plating=platingResult(state.assistantAction?null:platingScore,recipe.price);
- const gain=recipe.price+tip+plating.bonus;
+ const charged=salePrice(state,recipe,order.contract);
+ const specialBonus=charged-recipe.price;
+ const tip=Math.round(charged*((quality>.5?.13:.05)+(state.upgrades.tips||0)*.05));
+ const plating=platingResult(state.assistantAction?null:platingScore,charged);
+ const gain=charged+tip+plating.bonus;
  state.money+=gain;state.xp+=Math.ceil(recipe.price*.65)+Math.round(quality*12)+plating.xpBonus;
  state.rep=clamp(state.rep+(quality>.33?1:-1)+plating.repBonus,0,100);
  if(plating.grade!=='standard'){
@@ -233,7 +270,12 @@ export function serveOrder(state,id,{platingScore=null}={}){
   state.platingStreak=plating.grade==='perfect'?Math.min(1000,(state.platingStreak||0)+1):0;
   state.platingBestStreak=Math.max(state.platingBestStreak||0,state.platingStreak);
  }
- state.today.served++;state.today.revenue+=recipe.price;state.today.tips+=tip+plating.bonus;state.today.platingBonus=(state.today.platingBonus||0)+plating.bonus;state.totalServed++;
+ state.today.served++;state.today.revenue+=charged;state.today.tips+=tip+plating.bonus;state.today.platingBonus=(state.today.platingBonus||0)+plating.bonus;state.totalServed++;
+ if(specialBonus>0){
+  state.today.specialBonus=(state.today.specialBonus||0)+specialBonus;
+  state.today.specialServed=(state.today.specialServed||0)+1;
+  state.specialServed=(state.specialServed||0)+1;
+ }
  if(state.assistantAction){state.assistantServed++;state.todayAssistantServed++;}
  let contractBonus=0,depositRefund=0,contractCompleted=false;
  const contract=state.contract;
@@ -249,7 +291,7 @@ export function serveOrder(state,id,{platingScore=null}={}){
   }
  }
  state.orders.splice(index,1);
- return{ok:true,recipe,tip,gain,quality,plating,contractCompleted,contractBonus,depositRefund};
+ return{ok:true,recipe,tip,gain,quality,plating,salePrice:charged,specialBonus,contractCompleted,contractBonus,depositRefund};
 }
 // Each helper action must use the normal cooking/serving rules. No ingredients,
 // money or chef slots are granted by automation.
