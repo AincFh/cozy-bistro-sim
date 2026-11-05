@@ -1,6 +1,6 @@
 import {
  SAVE_VERSION,INGREDIENTS,MENU,PACKS,UPGRADES,createGame,restore,serialize,recipesAvailable,recipeById,ingredientAvailable,slots,
- levelOf,upgradePrice,buyPackage,buyPlannedRestock,planRestock,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract
+ levelOf,upgradePrice,buyPackage,buyPlannedRestock,planRestock,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract,DAILY_FEATURE,chooseDailySpecial,salePrice,featuredDemandShare
 } from './engine.js';
 import {initializeRoom,updateRoom} from './scene.js';
 const $=id=>document.getElementById(id),STORAGE='cozy-bistro-save-v1';
@@ -58,7 +58,7 @@ function updateOrderHTML(){
   const stateLabel=(order.contract?'团体订餐 · ':'')+(ready?'等待上菜':cooking?'厨师制作中':'等待点餐');
   const action=ready?'serve':'cook';
   const avatarColor=['#e1ab96','#b9bc98','#9db5a3','#c9b0ca','#e1c295'][order.mood%5];
-  return "<article class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>◈ "+dish.price+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button>"+(ready?"<button class='plating-action' data-order='"+order.id+"' data-action='plate'>精致摆盘</button>":"")+"</div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
+  return "<article class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>"+(state.dailySpecial===dish.id&&!order.contract?"今日主推 · ":"")+"◈ "+salePrice(state,dish,order.contract)+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button>"+(ready?"<button class='plating-action' data-order='"+order.id+"' data-action='plate'>精致摆盘</button>":"")+"</div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
  }).join('');
 }
 function render(){
@@ -74,13 +74,13 @@ function render(){
  setText('speedBtn',state.gameSpeed+'× 速度');
  const needed=new Set(recipesAvailable(state).flatMap(x=>Object.keys(x.recipe)));
  setText('stockHint',[...needed].filter(k=>(state.pantry[k]||0)<3).length+' 种常用食材库存偏低');
- setText('menuHint',recipesAvailable(state).length+' / '+MENU.length+' 道菜谱已经解锁');
+ setText('menuHint',recipesAvailable(state).length+' / '+MENU.length+' 道菜谱已解锁'+(state.dailySpecial?' · 主推 '+recipeById(state.dailySpecial).name:''));
  setText('upgradeHint',slots(state)+' 个制作台 · 主厨速度 '+Math.round(100*Math.pow(1.18,state.upgrades.stove))+'%');
  setText('soundBtn',state.sound?'♫':'♪');
  const badge=$('statusBadge'),primary=$('primaryAction');
  if(state.phase==='planning'){
   setText('phaseTag','A NEW DAY BEGINS');setText('sectionTitle','把日子过成好风景.');
-  setText('sectionDesc',state.contract?'今日已签约 '+state.contract.customer+' 的订餐委托，记得预留 '+state.contract.count+' 份 '+recipeById(state.contract.recipe).name+'。':'先补足库存、规划厨房，再开门迎接今天的第一位客人。');
+  setText('sectionDesc',state.contract?'今日已签约 '+state.contract.customer+' 的订餐委托，记得预留 '+state.contract.count+' 份 '+recipeById(state.contract.recipe).name+'。':state.dailySpecial?'今日主推「'+recipeById(state.dailySpecial).name+'」：预计需求提升，请提前备好足够原料。':'先补足库存、规划厨房，再开门迎接今天的第一位客人。');
   setText('panelHeading','今天的营业计划');setText('actionLead','备好原料与设备，开始今天的餐馆经营。');
   badge.textContent='PREPARE';primary.innerHTML='开门营业　<span>→</span>';primary.disabled=false;
   setText('objectiveText','准备食材，迎接新的营业日');setText('objectivePercent','0%');$('dayBar').style.width='0%';
