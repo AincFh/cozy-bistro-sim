@@ -20,6 +20,17 @@
 #platingStop{flex:1;color:#16382d;background:linear-gradient(120deg,#e9e9ba,#a3d2ac)}
 #platingCancel{background:transparent;color:#d5dfd1}
 @media(max-width:550px){.plating-panel{padding:24px}.plating-actions{flex-direction:column}.plating-actions button{width:100%}.order-body .plating-action{flex:1}}
+
+/* Featured menu strategy uses the existing sheet system with an explicit,
+ * transaction-backed promotion preview, no automatic spending. */
+.feature-highlight{margin:0 0 20px;padding:22px 25px;border-radius:15px;border:1px solid rgba(193,180,138,.46);background:linear-gradient(125deg,rgba(235,207,148,.16),rgba(75,114,92,.10) 68%,transparent);box-shadow:inset 0 1px 0 rgba(255,251,230,.12)}
+.feature-highlight .subline{font-size:10px;font-weight:800;letter-spacing:.19em;color:#ad9161}
+.feature-highlight h3{font-family:Georgia,'Microsoft YaHei',serif;font-weight:650;font-size:clamp(20px,3.5vw,29px);margin:9px 0 11px;color:#e6d2a5}
+.feature-highlight p{font-size:12px;line-height:1.8;margin:0 0 10px;color:var(--muted,#aac2b8)}
+.feature-highlight strong{display:block;font-size:11px;color:#d5c28d;line-height:1.65}
+.featured-card{border-color:rgba(225,203,145,.67)!important;box-shadow:inset 0 0 0 1px rgba(217,191,138,.16),0 8px 30px rgba(0,0,0,.12)}
+.featured-card .price{color:#ddc38a!important}
+@media(max-width:580px){.feature-highlight{padding:16px 17px}.feature-highlight h3{font-size:22px}}
 </style>
 </head><body>
 <div class="app-frame">
