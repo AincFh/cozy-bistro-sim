@@ -244,6 +244,7 @@ function journalContents(){
   html+="<h3 class='sheet-section-title' style='margin-top:34px'>经营流水</h3>"+[...state.history].reverse().map(x=>"<div class='ledger-row'><strong>DAY "+String(x.day).padStart(2,'0')+"</strong><span>完成 "+x.served+" 单　·　流失 "+x.missed+" 单</span><em>收入 ◈ "+currency(x.revenue+x.tips)+" / 支出 ◈ "+currency(x.spent)+"</em></div>").join('');
  }else html+="<p class='muted'>营业日结束后，这里会自动出现每日账本和收入走势图。</p>";
  html+="<h3 class='sheet-section-title'>社区委托记录</h3><p class='muted'>累计完成 "+(state.contractsWon||0)+" 份，未完成 "+(state.contractsLost||0)+" 份。委托奖励记入当天账本，押金在全数交付后退还。</p>";
+ html+="<h3 class='sheet-section-title'>摆盘手艺记录</h3><p class='muted'>累计摆盘 "+(state.platingAttempts||0)+" 次 · 完美摆盘 "+(state.platingPerfect||0)+" 次 · 最佳连续完美 "+(state.platingBestStreak||0)+" 次 · 今日额外奖励 ◈ "+currency(state.today.platingBonus||0)+"。</p>";
  html+="<h3 class='sheet-section-title'>兼职协助记录</h3><p class='muted'>累计兼职上菜 "+(state.assistantServed||0)+" 单 · 今日兼职上菜 "+(state.todayAssistantServed||0)+" 单。兼职工资计入当日支出，不另扣费。</p>";
  html+="<h3 class='sheet-section-title' style='margin-top:26px'>经营成就</h3><div class='sheet-grid'>"+achievements(state).map(a=>card(a.name,a.earned?'ACHIEVEMENT EARNED':'LOCKED GOAL',a.note,a.earned?'✦':'◇',a.earned?'已达成':'尚未达成',null,false,a.earned?'':'locked-card')).join('')+"</div>";
  return html;
@@ -268,7 +269,7 @@ const sheets={
   card('03 · 制作订单','COOK','在订单卡片点击「开始制作」，厨房按制作台数量并行工作。食材不足时无法制作。','⌁','升级可提升制作效率',null)+
   card('04 · 聘用兼职助手','STAFF','第 2 天起可以营业前按天聘用兼职；助理自动制作或上菜，但需要支付固定工资。','♧','工资计入今日支出',null)+
   card('05 · 邻里团体订餐','CATERING','营业前可签约一份付押金的团体订餐，多份料理与散客共用厨房和食材，必须全部交付才能返还押金与领取奖金。','▣','通过专属社区订餐菜单接单',null)+
-  card('06 · 及时上菜','SERVE','料理完成后点击「立即上菜」，赚取售价、小费和经验。等待太久的客人会离开。','♥','提高口碑可提高评级',null)+
+  card('06 · 及时上菜','SERVE','料理完成后可以普通上菜，也可挑战五秒计时的精致摆盘。越接近目标区域越有机会获得额外小费、经验与口碑。','♥','提高口碑可提高评级',null)+
   card('07 · 每日结算','DAY REPORT','当天全部顾客处理完毕后自动结算。查看账本，选择进入下一天。','◈','记录最近 24 天',null)+
   card('08 · 保存进度','LOCAL SAVE','浏览器自动存档，也能手动导出 JSON 备份。此版本无需登录，也没有真实支付。','✦','当前版本 v1',null)+"</div>"]
 };
@@ -355,4 +356,4 @@ function frame(now){
 }
 window.addEventListener('pagehide',save);
 initializeRoom($('room'));render();requestAnimationFrame(frame);
-window.COZY_BISTRO={getState:()=>({day:state.day,phase:state.phase,money:state.money,rep:state.rep,served:state.totalServed,missed:state.totalMissed,orders:state.orders.map(o=>({id:o.id,recipe:o.recipe,status:o.status,patience:o.patience})),scheduled:state.scheduled.length,elapsed:state.elapsed}),test:{start(){const x=startDay(state);render();return x},step(n){const x=advance(state,n);render();return x},cook(id){const x=cookOrder(state,id);render();return x},serve(id){const x=serveOrder(state,id);render();return x},getRaw:()=>state,reset(){state=createGame();render();}}};
+window.COZY_BISTRO={getState:()=>({day:state.day,phase:state.phase,money:state.money,rep:state.rep,served:state.totalServed,missed:state.totalMissed,platingPerfect:state.platingPerfect,platingActive:!!plating,orders:state.orders.map(o=>({id:o.id,recipe:o.recipe,status:o.status,patience:o.patience})),scheduled:state.scheduled.length,elapsed:state.elapsed}),test:{start(){const x=startDay(state);render();return x},step(n){const x=advance(state,n);render();return x},cook(id){const x=cookOrder(state,id);render();return x},serve(id){const x=serveOrder(state,id);render();return x},servePlated(id,score){const x=serveOrder(state,id,{platingScore:score});render();return x},getRaw:()=>state,reset(){state=createGame();render();}}};
