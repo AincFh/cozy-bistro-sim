@@ -110,6 +110,58 @@ export function claimSupport(state){
  for(const [k,v]of Object.entries(SUPPORT_ITEMS))state.pantry[k]=(state.pantry[k]||0)+v;
  state.lastAidDay=state.day;return{ok:true,items:SUPPORT_ITEMS};
 }
+/**
+ * Find the cheapest bundle of existing supplier packs needed to make N
+ * servings of a selected unlocked dish, after counting current inventory.
+ * This is an exact bounded search over pack quantities (only six suppliers).
+ * A quoted plan never mutates the simulation.
+ */
+export function planRestock(state,recipeId,servings=3){
+ const recipe=recipeById(recipeId);
+ if(!recipe||recipe.day>state.day)return{ok:false,error:'这份菜谱尚未解锁'};
+ if(!Number.isInteger(servings)||servings<1||servings>8)return{ok:false,error:'备货份数必须在 1–8 之间'};
+ const required=Object.fromEntries(Object.entries(recipe.recipe).map(([k,v])=>[k,v*servings]));
+ const missing=Object.fromEntries(Object.entries(required).map(([k,n])=>[k,Math.max(0,n-Math.max(0,Number(state.pantry[k])||0))]));
+ const keys=Object.keys(required);
+ if(keys.every(k=>missing[k]===0))
+  return{ok:true,recipe,servings,missing,purchases:[],cost:0,affordable:true};
+ const suppliers=PACKS.filter(p=>keys.some(k=>missing[k]>0&&(p.items[k]||0)>0));
+ let bestCost=Infinity,bestCount=Infinity,best=null;
+ function search(index,needs,cost,chosen,count){
+  if(cost>bestCost||(cost===bestCost&&count>=bestCount))return;
+  if(keys.every(k=>needs[k]===0)){
+   bestCost=cost;bestCount=count;best=[...chosen];return;
+  }
+  if(index===suppliers.length)return;
+  const pack=suppliers[index];
+  const maxCopies=Math.max(0,...keys.map(k=>pack.items[k]?Math.ceil(needs[k]/pack.items[k]):0));
+  for(let copies=0;copies<=maxCopies;copies++){
+   chosen[index]=copies;
+   const next={};
+   for(const k of keys)next[k]=Math.max(0,needs[k]-copies*(pack.items[k]||0));
+   search(index+1,next,cost+copies*pack.price,chosen,count+copies);
+  }
+  chosen[index]=0;
+ }
+ search(0,missing,0,[],0);
+ if(!best)return{ok:false,error:'当前配送商无法补齐所需食材'};
+ const purchases=suppliers.map((p,i)=>({...p,count:best[i]||0})).filter(p=>p.count>0);
+ return{ok:true,recipe,servings,missing,purchases,cost:bestCost,affordable:state.money>=bestCost};
+}
+/** Purchase all quoted packs atomically; insufficient funds never alter data. */
+export function buyPlannedRestock(state,recipeId,servings=3){
+ if(state.phase!=='planning')return{ok:false,error:'只能在营业前进行批量备货'};
+ const plan=planRestock(state,recipeId,servings);
+ if(!plan.ok)return plan;
+ if(!plan.affordable)return{ok:false,error:'当前资金不足，无法完成整套采购',cost:plan.cost};
+ if(plan.cost===0)return{ok:true,spent:0,plan};
+ // All preconditions checked before the first mutation.
+ state.money-=plan.cost;state.today.spent+=plan.cost;
+ for(const pack of plan.purchases)
+  for(const [ingredient,qty]of Object.entries(pack.items))
+   state.pantry[ingredient]=(state.pantry[ingredient]||0)+qty*pack.count;
+ return{ok:true,spent:plan.cost,plan};
+}
 export function buyPackage(state,id){const pack=byId(PACKS,id);if(!pack)return{ok:false,error:'不存在的补给'};
  if(state.phase!=='planning')return{ok:false,error:'请在营业前备货'};
  if(state.money<pack.price)return{ok:false,error:'金币不足'};
