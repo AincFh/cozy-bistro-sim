@@ -47,8 +47,8 @@ export function createGame(seed=20261105){
  return {version:SAVE_VERSION,seed:integer(seed,0,4294967295)>>>0,day:1,phase:'planning',money:270,rep:65,xp:0,totalServed:0,totalMissed:0,
  pantry:{...DEFAULT_PANTRY},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
  elapsed:0,duration:110,scheduled:[],orders:[],idSeq:0,
- today:{served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0},
- lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0,
+ today:{served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0},
+ lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0,platingPerfect:0,platingGood:0,platingAttempts:0,platingBestStreak:0,platingStreak:0,
  assistantHired:false,assistantCooldown:0,assistantServed:0,todayAssistantServed:0,
  contract:null,contractsWon:0,contractsLost:0};
 }
@@ -209,17 +209,31 @@ export function cookOrder(state,id){
  order.status='cooking';order.cookLeft=prepDuration(state,recipe);order.cookTotal=order.cookLeft;
  return{ok:true,recipe};
 }
-export function serveOrder(state,id){
+export function platingResult(score,recipePrice){
+ if(!Number.isFinite(score)||score<0||score>1)return{grade:'standard',bonus:0,repBonus:0,xpBonus:0};
+ const grade=score>=.88?'perfect':score>=.6?'good':score>=.35?'fair':'miss';
+ const bonus=grade==='perfect'?Math.round(recipePrice*.23):grade==='good'?Math.round(recipePrice*.12):grade==='fair'?Math.round(recipePrice*.04):0;
+ return {grade,bonus,repBonus:grade==='perfect'?2:grade==='good'?1:0,xpBonus:grade==='perfect'?18:grade==='good'?9:grade==='fair'?3:0};
+}
+export function serveOrder(state,id,{platingScore=null}={}){
  if(state.phase!=='open')return{ok:false,error:'餐厅未营业'};
  const index=state.orders.findIndex(x=>x.id===id&&x.status==='ready');
  if(index<0)return{ok:false,error:'订单尚未完成'};
  const order=state.orders[index],recipe=recipeById(order.recipe);
  const quality=order.patience/Math.max(1,order.maxPatience);
  const tip=Math.round(recipe.price*((quality>.5?.13:.05)+(state.upgrades.tips||0)*.05));
- const gain=recipe.price+tip;
- state.money+=gain;state.xp+=Math.ceil(recipe.price*.65)+Math.round(quality*12);
- state.rep=clamp(state.rep+(quality>.33?1:-1),0,100);
- state.today.served++;state.today.revenue+=recipe.price;state.today.tips+=tip;state.totalServed++;
+ const plating=platingResult(state.assistantAction?null:platingScore,recipe.price);
+ const gain=recipe.price+tip+plating.bonus;
+ state.money+=gain;state.xp+=Math.ceil(recipe.price*.65)+Math.round(quality*12)+plating.xpBonus;
+ state.rep=clamp(state.rep+(quality>.33?1:-1)+plating.repBonus,0,100);
+ if(plating.grade!=='standard'){
+  state.platingAttempts=(state.platingAttempts||0)+1;
+  if(plating.grade==='perfect')state.platingPerfect=(state.platingPerfect||0)+1;
+  if(plating.grade==='good')state.platingGood=(state.platingGood||0)+1;
+  state.platingStreak=plating.grade==='perfect'?Math.min(1000,(state.platingStreak||0)+1):0;
+  state.platingBestStreak=Math.max(state.platingBestStreak||0,state.platingStreak);
+ }
+ state.today.served++;state.today.revenue+=recipe.price;state.today.tips+=tip+plating.bonus;state.today.platingBonus=(state.today.platingBonus||0)+plating.bonus;state.totalServed++;
  if(state.assistantAction){state.assistantServed++;state.todayAssistantServed++;}
  let contractBonus=0,depositRefund=0,contractCompleted=false;
  const contract=state.contract;
@@ -235,7 +249,7 @@ export function serveOrder(state,id){
   }
  }
  state.orders.splice(index,1);
- return{ok:true,recipe,tip,gain,quality,contractCompleted,contractBonus,depositRefund};
+ return{ok:true,recipe,tip,gain,quality,plating,contractCompleted,contractBonus,depositRefund};
 }
 // Each helper action must use the normal cooking/serving rules. No ingredients,
 // money or chef slots are granted by automation.
@@ -273,6 +287,7 @@ export function finishDay(state){
   contractStatus:state.contract?.status||null,contractRecipe:state.contract?.recipe||null,
   contractDelivered:state.contract?.delivered||0,
   contractRequired:state.contract?.count||0,
+  platingBonus:state.today.platingBonus||0,platingPerfect:state.platingPerfect||0,
   rep:state.rep,balance:state.money};
  state.history.push(summary);state.history=state.history.slice(-24);
  state.lastSummary=summary;state.phase='summary';return true;
@@ -306,7 +321,7 @@ export function advance(state,seconds){
 export function nextDay(state){
  if(state.phase!=='summary')return false;
  state.day++;state.phase='planning';state.elapsed=0;state.duration=110;state.orders=[];state.scheduled=[];
- state.today={served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0};state.assistantHired=false;state.assistantCooldown=0;state.todayAssistantServed=0;state.contract=null;return true;
+ state.today={served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0};state.assistantHired=false;state.assistantCooldown=0;state.todayAssistantServed=0;state.contract=null;return true;
 }
 export function achievements(state){
  return [
@@ -319,7 +334,9 @@ export function achievements(state){
   {id:'rich',name:'金色收银台',note:'持有 2000 金币',earned:state.money>=2000},
   {id:'partnership',name:'街角的默契',note:'兼职助手累计协助完成 20 次上菜',earned:(state.assistantServed||0)>=20},
   {id:'neighbor',name:'邻里的信任',note:'按时完成首份社区订餐委托',earned:(state.contractsWon||0)>=1},
-  {id:'catering',name:'餐饮承办达人',note:'累计完成 10 份社区订餐委托',earned:(state.contractsWon||0)>=10}
+  {id:'catering',name:'餐饮承办达人',note:'累计完成 10 份社区订餐委托',earned:(state.contractsWon||0)>=10},
+  {id:'plating',name:'摆盘艺术家',note:'完成 5 次完美摆盘',earned:(state.platingPerfect||0)>=5},
+  {id:'streak',name:'手感正佳',note:'连续 3 次完美摆盘',earned:(state.platingBestStreak||0)>=3}
  ];
 }
 export function serialize(state){return JSON.stringify(state);}
@@ -334,6 +351,8 @@ export function restore(raw){
   d.assistantHired=val.assistantHired===true;d.assistantCooldown=clamp(val.assistantCooldown??0,0,ASSISTANT.cooldown);
   d.assistantServed=integer(val.assistantServed??0,0,1e9);d.todayAssistantServed=integer(val.todayAssistantServed??0,0,1e9);d.assistantAction=false;
   d.contractsWon=integer(val.contractsWon??0,0,1e6);d.contractsLost=integer(val.contractsLost??0,0,1e6);
+  for(const key of ['platingPerfect','platingGood','platingAttempts','platingBestStreak','platingStreak'])
+   d[key]=integer(val[key]??0,0,1e6);
   const c=val.contract;
   if(c&&typeof c==='object'&&recipeById(c.recipe)&&['accepted','active','failed','completed'].includes(c.status)){
    const count=integer(c.count,2,4),delivered=integer(c.delivered,0,count),day=integer(c.day,1,1000);
@@ -364,6 +383,7 @@ export function restore(raw){
     contractStatus:['completed','failed'].includes(h.contractStatus)?h.contractStatus:null,
     contractRecipe:recipeById(h.contractRecipe)?h.contractRecipe:null,
     contractDelivered:integer(h.contractDelivered??0,0,4),contractRequired:integer(h.contractRequired??0,0,4),
+    platingBonus:integer(h.platingBonus??0),platingPerfect:integer(h.platingPerfect??0),
     rep:integer(h.rep,0,100),balance:integer(h.balance)
   })):[];
   d.lastSummary=d.phase==='summary'?d.history.at(-1)||null:null;
