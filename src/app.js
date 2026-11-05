@@ -1,6 +1,6 @@
 import {
  SAVE_VERSION,INGREDIENTS,MENU,PACKS,UPGRADES,createGame,restore,serialize,recipesAvailable,recipeById,ingredientAvailable,slots,
- levelOf,upgradePrice,buyPackage,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay
+ levelOf,upgradePrice,buyPackage,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport
 } from './engine.js';
 import {initializeRoom,updateRoom} from './scene.js';
 const $=id=>document.getElementById(id),STORAGE='cozy-bistro-save-v1';
@@ -70,7 +70,8 @@ function render(){
  setText('servicePercent',state.phase==='planning'?'0%':state.phase==='summary'?'100%':Math.min(100,Math.round(state.elapsed/state.duration*100))+'%');
  $('serviceBar').style.width=(state.phase==='planning'?0:state.phase==='summary'?100:Math.min(100,state.elapsed/state.duration*100))+'%';
  setText('speedBtn',state.gameSpeed+'× 速度');
- setText('stockHint',Object.keys(state.pantry).filter(k=>state.pantry[k]<3).length+' 种食材库存偏低');
+ const needed=new Set(recipesAvailable(state).flatMap(x=>Object.keys(x.recipe)));
+ setText('stockHint',[...needed].filter(k=>(state.pantry[k]||0)<3).length+' 种常用食材库存偏低');
  setText('menuHint',recipesAvailable(state).length+' / '+MENU.length+' 道菜谱已经解锁');
  setText('upgradeHint',slots(state)+' 个制作台 · 主厨速度 '+Math.round(100*Math.pow(1.18,state.upgrades.stove))+'%');
  setText('soundBtn',state.sound?'♫':'♪');
@@ -139,7 +140,8 @@ function menuContents(){
 function stockContents(){
  const stocks=Object.entries(INGREDIENTS).map(([k,v])=>"<div class='stock-cell'><span class='icon'>"+v.emoji+"</span><strong>"+v.name+"</strong><small>"+state.pantry[k]+" 份库存</small></div>").join('');
  const packs=PACKS.map(p=>card(p.name,'FRESH DELIVERY',p.subtitle+' / '+Object.entries(p.items).map(([k,n])=>INGREDIENTS[k].name+'×'+n).join(' · '),'▤','◈ '+p.price,'采购补给','pack:'+p.id,state.phase!=='planning'||state.money<p.price)).join('');
- return "<h3 class='sheet-section-title'>当前冰箱库存</h3><div class='stock-grid'>"+stocks+"</div><h3 class='sheet-section-title'>每日新鲜配送</h3><p class='muted'>营业前可以多次备货；开店后不能临时补货，请提前做好预算。</p><div class='sheet-grid'>"+packs+"</div>";
+ const support=canClaimSupport(state)?"<div class='sheet-card' style='margin-bottom:20px;border-color:#dbcf9b99'><div class='card-top'><span class='card-icon'>✦</span><div><div class='subline'>COMMUNITY HELP · 一日一次</div><h3>邻里应急食材篮</h3></div></div><p>资金不足或没有可做菜品时，可领取一次免费食材，避免经营死局。</p><div class='card-cta'><span class='price'>免费 · 今日一次</span><button data-cmd='aid'>领取补给</button></div></div>":"";
+ return "<h3 class='sheet-section-title'>当前冰箱库存</h3><div class='stock-grid'>"+stocks+"</div>"+support+"<h3 class='sheet-section-title'>每日新鲜配送</h3><p class='muted'>营业前可以多次备货；开店后不能临时补货，请提前做好预算。</p><div class='sheet-grid'>"+packs+"</div>";
 }
 function upgradesContents(){
  return "<p class='muted'>不同升级会实际改变制作时间、并行料理、客人耐心、小费和每日客流。升级只允许在开业前进行。</p><div class='sheet-grid'>"+UPGRADES.map(x=>{
@@ -216,6 +218,7 @@ $('sheetBody').addEventListener('click',e=>{
   if(result.ok){toast(result.item.name+' 升级完成！','success');save();openSheet('upgrades');render();}
   else toast(result.error,'miss');return;
  }
+ if(cmd==='aid'){const result=claimSupport(state);if(result.ok){save();toast('已收到邻里提供的应急食材。','success');openSheet('stock');render();}else toast(result.error,'miss');return;}
  if(cmd==='export'){
   const file=new Blob([JSON.stringify({type:'cozy-bistro-save',version:SAVE_VERSION,progress:state},null,2)],{type:'application/json'});
   const url=URL.createObjectURL(file),a=document.createElement('a');

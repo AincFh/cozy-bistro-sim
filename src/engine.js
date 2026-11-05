@@ -48,9 +48,19 @@ export function createGame(seed=20261105){
  pantry:{...DEFAULT_PANTRY},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
  elapsed:0,duration:110,scheduled:[],orders:[],idSeq:0,
  today:{served:0,missed:0,revenue:0,tips:0,spent:0},
- lastSummary:null,history:[],sound:true,gameSpeed:1};
+ lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0};
 }
 export function rng(state){state.seed=(Math.imul(state.seed,1664525)+1013904223)>>>0;return state.seed/4294967296;}
+export const SUPPORT_ITEMS={tea:3,lemon:3,bread:3,berries:3,lettuce:3,tomato:3};
+export function canClaimSupport(state){
+ const noMeals=recipesAvailable(state).every(recipe=>!ingredientAvailable(state,recipe));
+ return state.phase==='planning'&&state.lastAidDay<state.day&&(state.money<80||noMeals);
+}
+export function claimSupport(state){
+ if(!canClaimSupport(state))return{ok:false,error:'当前不符合应急补给领取条件'};
+ for(const [k,v]of Object.entries(SUPPORT_ITEMS))state.pantry[k]=(state.pantry[k]||0)+v;
+ state.lastAidDay=state.day;return{ok:true,items:SUPPORT_ITEMS};
+}
 export function buyPackage(state,id){const pack=byId(PACKS,id);if(!pack)return{ok:false,error:'不存在的补给'};
  if(state.phase!=='planning')return{ok:false,error:'请在营业前备货'};
  if(state.money<pack.price)return{ok:false,error:'金币不足'};
@@ -163,6 +173,7 @@ export function restore(raw){
   const d=createGame(val.seed);
   for(const k of ['day','money','xp','totalServed','totalMissed','idSeq'])d[k]=integer(val[k]??d[k],k==='day'?1:0,k==='day'?1000:1e9);
   d.seed=integer(val.seed??20261105,0,4294967295)>>>0;d.rep=integer(val.rep??65,0,100);
+  d.lastAidDay=integer(val.lastAidDay??0,0,1000);
   d.phase=['planning','open','summary'].includes(val.phase)?val.phase:'planning';
   for(const k of Object.keys(d.pantry))d.pantry[k]=integer(val.pantry?.[k]??d.pantry[k],0,1e7);
   for(const u of UPGRADES)d.upgrades[u.id]=integer(val.upgrades?.[u.id]??0,0,u.max);
