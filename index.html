@@ -1,0 +1,57 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#132b2c"><meta name="description" content="COZY BISTRO 日落餐馆：一款完整基础经营循环的免费网页餐馆管理模拟游戏。"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><link rel="stylesheet" href="./style.css"><title>COZY BISTRO · 日落餐馆</title></head><body>
+<div class="app-frame">
+<header class="topbar">
+ <a class="brand" target="_blank" rel="noopener" href="https://github.com/AincFh/cozy-bistro-sim" title="GitHub 开源仓库"><span class="brand-seal"><svg width="33" height="33" viewBox="0 0 36 36" fill="none"><path d="M7 21h22c-1 7-6 10-11 10S8 28 7 21Z" stroke="currentColor" stroke-width="1.65"/><path d="M8 20h20M11 15c-1-4 3-5 1-8M18 15c-1-4 3-5 1-8M25 15c-1-4 3-5 1-8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><span>COZY <strong>BISTRO</strong><small>日落餐馆 · A LITTLE PLACE TO CALL YOURS</small></span></a>
+ <div class="topmetrics">
+  <div class="metric-money"><span class="metric-icon">◈</span><div><b id="money">270</b><small>营业资金</small></div></div>
+  <div class="metric-rep"><span class="metric-icon">♥</span><div><b><span id="rep">65</span><i>/100</i></b><small>顾客口碑</small></div></div>
+  <div class="metric-level"><div><b>LV <span id="level">1</span></b><small id="xpText">0 XP</small></div><div class="mini-progress"><i id="xpProgress"></i></div></div>
+  <button class="top-icon" id="soundBtn" aria-label="切换声音" title="声音">♫</button>
+  <button class="top-icon" id="helpBtn" aria-label="玩法帮助" title="玩法帮助">?</button>
+ </div>
+</header>
+<div class="workspace">
+<aside class="left-nav">
+ <div class="nav-top"><span class="nav-caption">THE LITTLE SHOP</span><div class="nav-day">DAY <b id="sidebarDay">01</b></div></div>
+ <div class="nav-group">
+  <button class="nav-btn selected" data-tab="service"><span class="nav-glyph">▦</span><span>经营总览</span><small>01</small></button>
+  <button class="nav-btn" data-tab="menu"><span class="nav-glyph">▤</span><span>餐厅菜单</span><small>02</small></button>
+  <button class="nav-btn" data-tab="stock"><span class="nav-glyph">▥</span><span>采购与备货</span><small>03</small></button>
+  <button class="nav-btn" data-tab="upgrades"><span class="nav-glyph">⌁</span><span>餐厅升级</span><small>04</small></button>
+  <button class="nav-btn" data-tab="journal"><span class="nav-glyph">◷</span><span>经营账本</span><small>05</small></button>
+ </div>
+ <div class="nav-bottom"><div class="season-info"><div class="season-icon">✦</div><div><small>SEASON ONE</small><b>我们的街角小店</b><p>每一天都有新的故事。</p></div></div><button id="backupBtn" class="backup-button">存档管理　↗</button><div class="build-label">OFFLINE · LOCAL SAVE</div></div>
+</aside>
+<main class="main-content">
+ <section class="section-header"><div><div class="eyebrow"><span class="pulse"></span> <span id="phaseTag">PREPARING THE DAY</span> <span class="separator">/</span> COZY BISTRO</div><h1 id="sectionTitle">把日子过成好风景<span>.</span></h1><p id="sectionDesc">先准备好厨房，再打开门迎接今天的第一位客人。</p></div><div class="day-toolbar"><div><span>营业日</span><b id="dayHeading">DAY 01</b></div><button class="speedBtn" id="speedBtn" title="切换模拟速度">1× <span>速度</span></button></div></section>
+ <div class="board-layout">
+  <section class="stage-panel">
+    <div class="room-wrapper"><svg id="room" viewBox="0 0 940 530" role="img" aria-label="一间正在经营的温馨街角小餐馆，窗外有暖阳、餐桌、绿植与工作的厨房"></svg>
+     <div class="scene-topline"><span>HARBOR STREET, 12</span><span class="scene-weather">☀　SOFT AFTERNOON</span></div>
+     <div class="scene-title"><small>OUR LITTLE CORNER</small><strong>每一天，都值得好好吃饭。</strong></div>
+     <div class="scene-bottomline"><span id="sceneState">灯光已点亮，等待今天的客人</span><span>◉ LIVE SCENE</span></div>
+    </div>
+    <div class="service-strip">
+      <div class="strip-item"><span class="strip-icon">◯</span><div><small>今日已接待</small><b><span id="served">0</span> <em>位</em></b></div></div>
+      <div class="strip-item"><span class="strip-icon">◈</span><div><small>营业收入</small><b><span id="revenue">0</span> <em>金币</em></b></div></div>
+      <div class="strip-item"><span class="strip-icon">♡</span><div><small>顾客离开</small><b><span id="missed">0</span> <em>位</em></b></div></div>
+      <div class="strip-item strip-clock"><span class="strip-icon">◷</span><div><small>营业进度</small><b id="elapsed">准备中</b></div></div>
+    </div>
+    <div class="milestone"><div class="milestone-text"><span class="tiny-label">TODAY'S OBJECTIVE</span><b id="objectiveText">做好准备，迎接新的营业日。</b></div><div class="milestone-progress"><span id="objectivePercent">0%</span><div><i id="dayBar"></i></div></div></div>
+  </section>
+  <section class="action-panel">
+   <div class="action-top"><div><div class="eyebrow">GUEST SERVICE · 01</div><h2 id="panelHeading">今天的营业计划</h2></div><span class="status-pill" id="statusBadge">PREPARE</span></div>
+   <div class="action-lead" id="actionLead">备好原料和设备。准备完成之后，点击开门营业。</div>
+   <div class="order-list" id="orderList" aria-live="polite"></div>
+   <div class="service-footer"><div class="day-progress"><span>营业时间 <strong id="servicePercent">0%</strong></span><div class="long-track"><i id="serviceBar"></i></div></div><button class="primary-action" id="primaryAction">开门营业 <span>→</span></button></div>
+  </section>
+ </div>
+ <section class="below-board"><div class="quick-card"><span class="quick-icon">✳</span><div><small>THE PANTRY</small><b>备好新鲜原料</b><p id="stockHint">经营从一篮新鲜食材开始。</p></div><button data-goto="stock" aria-label="查看备货">↗</button></div><div class="quick-card"><span class="quick-icon">✦</span><div><small>HOUSE SPECIALS</small><b>解锁招牌菜品</b><p id="menuHint">从三道小食开始经营。</p></div><button data-goto="menu" aria-label="查看菜谱">↗</button></div><div class="quick-card"><span class="quick-icon">⌁</span><div><small>GROW TOGETHER</small><b>升级你的餐馆</b><p id="upgradeHint">更快的厨房，更满意的客人。</p></div><button data-goto="upgrades" aria-label="查看升级">↗</button></div></section>
+ <footer class="pagefooter"><span>COZY BISTRO © 2026 · AN ORIGINAL BROWSER SIMULATION</span><span>NO ACCOUNT · NO PAYMENTS · LOCAL-FIRST</span></footer>
+</main></div>
+</div>
+<div id="sheetOverlay" class="sheet-overlay" hidden><section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"><div class="sheet-head"><div><span class="eyebrow" id="sheetTag">LITTLE DETAILS</span><h2 id="sheetTitle">餐厅菜单</h2><p id="sheetDesc"></p></div><button id="closeSheet" class="sheet-close" aria-label="关闭">×</button></div><div id="sheetBody" class="sheet-body"></div></section></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="intro" id="intro"><div class="intro-backdrop"></div><div class="intro-copy"><div class="intro-brand">AN ORIGINAL LITTLE MANAGEMENT GAME</div><div class="intro-mark">✦</div><h1>COZY<br><i>BISTRO.</i></h1><div class="intro-cn">日 落 餐 馆</div><p>一间属于你的街角小店。<br>从第一杯柠檬茶开始，慢慢经营出令人想念的味道。</p><button id="enterBtn">走进小店　↗</button><div class="intro-foot">BUILD YOUR DREAM · SERVE WITH HEART · GROW EVERY DAY</div></div></div>
+<input id="importFile" type="file" accept=".json,application/json" hidden>
+<script type="module" src="./src/app.js"></script></body></html>
