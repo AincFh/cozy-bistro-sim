@@ -7,7 +7,7 @@ const $=id=>document.getElementById(id),STORAGE='cozy-bistro-save-v1';
 const currency=n=>Math.round(n).toLocaleString('zh-CN');
 const safe=s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 let state;try{state=restore(localStorage.getItem(STORAGE))}catch{state=createGame()}
-let currentTab='service',active=false,lastFrame=0,lastRender=0,lastAutosave=0,lastToast,ctx=null;
+let currentTab='service',active=false,lastFrame=0,lastRender=0,lastAutosave=0,lastToast,ctx=null,plating=null;
 const setText=(id,v)=>{$(id).textContent=String(v);};
 const save=()=>{try{localStorage.setItem(STORAGE,serialize(state));}catch{}};
 function beep(tone='tap'){
@@ -53,12 +53,12 @@ function updateOrderHTML(){
  list.innerHTML=state.orders.map(order=>{
   const dish=recipeById(order.recipe),patience=Math.max(0,order.patience),ratio=patience/Math.max(1,order.maxPatience);
   const ready=order.status==='ready',cooking=order.status==='cooking',canCook=!cooking&&!ready&&running<slots(state)&&ingredientAvailable(state,dish);
-  const label=ready?'立即上菜':cooking?'制作中…':canCook?'开始制作':running>=slots(state)?'制作台已满':'食材不足';
+  const label=ready?'普通上菜':cooking?'制作中…':canCook?'开始制作':running>=slots(state)?'制作台已满':'食材不足';
   const pPercent=cooking?Math.round((1-order.cookLeft/Math.max(.1,order.cookTotal))*100):Math.round(ratio*100);
   const stateLabel=(order.contract?'团体订餐 · ':'')+(ready?'等待上菜':cooking?'厨师制作中':'等待点餐');
   const action=ready?'serve':'cook';
   const avatarColor=['#e1ab96','#b9bc98','#9db5a3','#c9b0ca','#e1c295'][order.mood%5];
-  return "<article class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>◈ "+dish.price+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button></div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
+  return "<article class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>◈ "+dish.price+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button>"+(ready?"<button class='plating-action' data-order='"+order.id+"' data-action='plate'>精致摆盘</button>":"")+"</div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
  }).join('');
 }
 function render(){
@@ -107,6 +107,50 @@ function render(){
  }
  updateOrderHTML();updateRoom($('room'),state);
 }
+
+/** Manual plating: a timed precision sweep instead of a passive serve click.
+ * Timeout delivers the ready dish without a skill bonus. Sim time is paused.
+ */
+function startPlating(id){
+ const order=state.orders.find(x=>x.id===id&&x.status==='ready');
+ if(!order||state.phase!=='open'||plating)return;
+ const hash=order.id*37+order.recipe.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+ const target=.29+(hash%42)/100;
+ plating={id,target,started:performance.now(),position:0,seconds:5.5};
+ const dish=recipeById(order.recipe);
+ setText('platingDish',dish.name+' · '+order.customer);
+ $('platingTarget').style.left=(100*target)+'%';
+ $('platingOverlay').hidden=false;
+ $('platingStop').focus();
+}
+function closePlating(){plating=null;$('platingOverlay').hidden=true;}
+function finishPlating(expired=false){
+ if(!plating)return;
+ const current=plating;
+ const precision=expired?0:Math.max(0,1-Math.abs(current.position-current.target)/.30);
+ closePlating();
+ const result=serveOrder(state,current.id,{platingScore:precision});
+ if(!result.ok){toast(result.error,'miss');render();return}
+ save();render();
+ const names={perfect:'完美摆盘',good:'精致摆盘',fair:'摆盘合格',miss:'普通完成',standard:'正常上菜'};
+ toast(names[result.plating.grade]+' · 获得 ◈ '+result.gain+'（摆盘奖励 ◈ '+result.plating.bonus+'）','success');
+}
+$('platingStop').onclick=()=>finishPlating(false);
+$('platingCancel').onclick=()=>{closePlating();render()};
+document.addEventListener('keydown',e=>{
+ if(!plating)return;
+ if(e.code==='Space'||e.code==='Enter'){e.preventDefault();finishPlating(false)}
+ else if(e.key==='Escape'){e.preventDefault();closePlating();render()}
+});
+function animatePlating(now){
+ if(!plating)return;
+ const elapsed=(now-plating.started)/1000;
+ if(elapsed>=plating.seconds){finishPlating(true);return}
+ plating.position=.5-.5*Math.cos(elapsed*5.2);
+ $('platingNeedle').style.left=(plating.position*100)+'%';
+ $('platingTime').textContent=(plating.seconds-elapsed).toFixed(1)+' s';
+}
+
 function onPrimary(){
  if(state.phase==='planning'){
   const result=startDay(state);
@@ -123,6 +167,7 @@ $('primaryAction').onclick=onPrimary;
 $('orderList').addEventListener('click',e=>{
  const b=e.target.closest('button[data-order]');if(!b)return;
  const id=Number(b.dataset.order),action=b.dataset.action;
+ if(action==='plate'){startPlating(id);return}
  const result=action==='cook'?cookOrder(state,id):serveOrder(state,id);
  if(result.ok){toast(result.contractCompleted?'团体订餐完成！额外奖励 ◈ '+result.contractBonus+'，返还押金 ◈ '+result.depositRefund:action==='cook'?'主厨开始制作 '+result.recipe.name:'上菜成功！收到 ◈ '+result.gain+'（含小费 '+result.tip+'）',action==='cook'?'cook':'success');save();}
  else toast(result.error,'miss');
@@ -199,6 +244,7 @@ function journalContents(){
   html+="<h3 class='sheet-section-title' style='margin-top:34px'>经营流水</h3>"+[...state.history].reverse().map(x=>"<div class='ledger-row'><strong>DAY "+String(x.day).padStart(2,'0')+"</strong><span>完成 "+x.served+" 单　·　流失 "+x.missed+" 单</span><em>收入 ◈ "+currency(x.revenue+x.tips)+" / 支出 ◈ "+currency(x.spent)+"</em></div>").join('');
  }else html+="<p class='muted'>营业日结束后，这里会自动出现每日账本和收入走势图。</p>";
  html+="<h3 class='sheet-section-title'>社区委托记录</h3><p class='muted'>累计完成 "+(state.contractsWon||0)+" 份，未完成 "+(state.contractsLost||0)+" 份。委托奖励记入当天账本，押金在全数交付后退还。</p>";
+ html+="<h3 class='sheet-section-title'>摆盘手艺记录</h3><p class='muted'>累计摆盘 "+(state.platingAttempts||0)+" 次 · 完美摆盘 "+(state.platingPerfect||0)+" 次 · 最佳连续完美 "+(state.platingBestStreak||0)+" 次 · 今日额外奖励 ◈ "+currency(state.today.platingBonus||0)+"。</p>";
  html+="<h3 class='sheet-section-title'>兼职协助记录</h3><p class='muted'>累计兼职上菜 "+(state.assistantServed||0)+" 单 · 今日兼职上菜 "+(state.todayAssistantServed||0)+" 单。兼职工资计入当日支出，不另扣费。</p>";
  html+="<h3 class='sheet-section-title' style='margin-top:26px'>经营成就</h3><div class='sheet-grid'>"+achievements(state).map(a=>card(a.name,a.earned?'ACHIEVEMENT EARNED':'LOCKED GOAL',a.note,a.earned?'✦':'◇',a.earned?'已达成':'尚未达成',null,false,a.earned?'':'locked-card')).join('')+"</div>";
  return html;
@@ -223,7 +269,7 @@ const sheets={
   card('03 · 制作订单','COOK','在订单卡片点击「开始制作」，厨房按制作台数量并行工作。食材不足时无法制作。','⌁','升级可提升制作效率',null)+
   card('04 · 聘用兼职助手','STAFF','第 2 天起可以营业前按天聘用兼职；助理自动制作或上菜，但需要支付固定工资。','♧','工资计入今日支出',null)+
   card('05 · 邻里团体订餐','CATERING','营业前可签约一份付押金的团体订餐，多份料理与散客共用厨房和食材，必须全部交付才能返还押金与领取奖金。','▣','通过专属社区订餐菜单接单',null)+
-  card('06 · 及时上菜','SERVE','料理完成后点击「立即上菜」，赚取售价、小费和经验。等待太久的客人会离开。','♥','提高口碑可提高评级',null)+
+  card('06 · 及时上菜','SERVE','料理完成后可以普通上菜，也可挑战五秒计时的精致摆盘。越接近目标区域越有机会获得额外小费、经验与口碑。','♥','提高口碑可提高评级',null)+
   card('07 · 每日结算','DAY REPORT','当天全部顾客处理完毕后自动结算。查看账本，选择进入下一天。','◈','记录最近 24 天',null)+
   card('08 · 保存进度','LOCAL SAVE','浏览器自动存档，也能手动导出 JSON 备份。此版本无需登录，也没有真实支付。','✦','当前版本 v1',null)+"</div>"]
 };
@@ -300,7 +346,8 @@ $('enterBtn').onclick=()=>{active=true;$('intro').hidden=true;render();toast(sta
 function frame(now){
  requestAnimationFrame(frame);
  const dt=Math.min(.22,Math.max(0,(now-lastFrame)/1000||.016));lastFrame=now;
- if(active&&state.phase==='open'&&$('sheetOverlay').hidden){
+ animatePlating(now);
+ if(active&&state.phase==='open'&&$('sheetOverlay').hidden&&!plating){
   const events=advance(state,dt*state.gameSpeed);
   if(events.length)eventsFeed(events);
  }
@@ -309,4 +356,4 @@ function frame(now){
 }
 window.addEventListener('pagehide',save);
 initializeRoom($('room'));render();requestAnimationFrame(frame);
-window.COZY_BISTRO={getState:()=>({day:state.day,phase:state.phase,money:state.money,rep:state.rep,served:state.totalServed,missed:state.totalMissed,orders:state.orders.map(o=>({id:o.id,recipe:o.recipe,status:o.status,patience:o.patience})),scheduled:state.scheduled.length,elapsed:state.elapsed}),test:{start(){const x=startDay(state);render();return x},step(n){const x=advance(state,n);render();return x},cook(id){const x=cookOrder(state,id);render();return x},serve(id){const x=serveOrder(state,id);render();return x},getRaw:()=>state,reset(){state=createGame();render();}}};
+window.COZY_BISTRO={getState:()=>({day:state.day,phase:state.phase,money:state.money,rep:state.rep,served:state.totalServed,missed:state.totalMissed,platingPerfect:state.platingPerfect,platingActive:!!plating,orders:state.orders.map(o=>({id:o.id,recipe:o.recipe,status:o.status,patience:o.patience})),scheduled:state.scheduled.length,elapsed:state.elapsed}),test:{start(){const x=startDay(state);render();return x},step(n){const x=advance(state,n);render();return x},cook(id){const x=cookOrder(state,id);render();return x},serve(id){const x=serveOrder(state,id);render();return x},servePlated(id,score){const x=serveOrder(state,id,{platingScore:score});render();return x},getRaw:()=>state,reset(){state=createGame();render();}}};
