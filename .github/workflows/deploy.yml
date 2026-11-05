@@ -24,6 +24,13 @@ jobs:
         run: npm test
       - name: Validate browser scripts
         run: npm run check
+      - name: Verify version-stamped production build
+        run: |
+          npm run build:pages
+          node --check dist/src/app.js
+          grep -q 'engine.js?v=' dist/src/app.js
+          grep -q 'scene.js?v=' dist/src/app.js
+          grep -q 'app.js?v=' dist/index.html
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -51,9 +58,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build release-stamped site
+        run: npm run build:pages
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
       - id: deployment
         uses: actions/deploy-pages@v4
