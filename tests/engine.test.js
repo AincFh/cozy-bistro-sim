@@ -21,3 +21,18 @@ test('invalid or adversarial save data is repaired',()=>{const s=restore({versio
 test('unknown save schema resets safely',()=>assert.equal(restore('{bad json').money,270));
 test('achievement milestones and leveling update',()=>{const s=createGame();s.totalServed=60;s.day=10;s.money=3000;s.rep=99;s.xp=1200;assert.ok(achievements(s).filter(x=>x.earned).length>=6);assert.ok(levelOf(s)>1);});
 test('simulation never creates negative inventories or money',()=>{const s=createGame(1213);startDay(s);for(let i=0;i<330;i++){advance(s,1);for(const order of [...s.orders]){if(order.status==='waiting')cookOrder(s,order.id);else if(order.status==='ready')serveOrder(s,order.id)}}for(const n of Object.values(s.pantry))assert.ok(n>=0);assert.ok(s.money>=0)});
+
+test('free emergency basket prevents bankruptcy deadlocks once per day',async()=>{
+ const {canClaimSupport,claimSupport}=await import('../src/engine.js');const s=createGame();s.money=0;
+ assert.equal(canClaimSupport(s),true);const original=s.pantry.bread;assert.equal(claimSupport(s).ok,true);
+ assert.equal(s.pantry.bread,original+3);assert.equal(canClaimSupport(s),false);assert.equal(claimSupport(s).ok,false);
+ startDay(s);advance(s,240);nextDay(s);assert.equal(canClaimSupport(s),true);
+});
+test('aid is offered when no unlocked recipe can be made',async()=>{
+ const {canClaimSupport}=await import('../src/engine.js');const s=createGame();for(const k of Object.keys(s.pantry))s.pantry[k]=0;
+ assert.equal(canClaimSupport(s),true);
+});
+test('aid redemption day survives storage roundtrip',async()=>{
+ const {claimSupport,canClaimSupport}=await import('../src/engine.js');const s=createGame();s.money=0;claimSupport(s);
+ const copy=restore(serialize(s));assert.equal(copy.lastAidDay,1);assert.equal(canClaimSupport(copy),false);
+});

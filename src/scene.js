@@ -35,7 +35,18 @@ function buildRoom(){
  customer(4,263,444,'#ada07c','#efb895','#685349')
  ];return svg.join('');
 }
-export function initializeRoom(node){if(node)node.innerHTML=buildRoom();}
+export function initializeRoom(node){
+ if(!node)return;
+ node.innerHTML=buildRoom();node.setAttribute('preserveAspectRatio','xMidYMid slice');
+ const fit=()=>{
+  const box=node.parentElement?.getBoundingClientRect();if(!box||!box.width||!box.height)return;
+  const aspect=box.width/box.height,viewHeight=Math.min(530,Math.max(320,940/aspect));
+  const y=Math.max(0,(530-viewHeight)*.48);
+  node.setAttribute('viewBox','0 '+y.toFixed(1)+' 940 '+viewHeight.toFixed(1));
+ };
+ fit();if(typeof ResizeObserver!=='undefined')new ResizeObserver(fit).observe(node.parentElement);
+ else window.addEventListener('resize',fit);
+}
 export function updateRoom(node,state){
  if(!node||!node.firstChild)return;
  const n=state.phase==='open'?Math.min(4,state.orders.length):state.phase==='summary'?2:0;
