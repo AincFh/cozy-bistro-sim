@@ -1,4 +1,27 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#132b2c"><meta name="description" content="COZY BISTRO 日落餐馆：一款完整基础经营循环的免费网页餐馆管理模拟游戏。"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><link rel="stylesheet" href="./style.css"><title>COZY BISTRO · 日落餐馆</title></head><body>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#132b2c"><meta name="description" content="COZY BISTRO 日落餐馆：一款完整基础经营循环的免费网页餐馆管理模拟游戏。"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><link rel="stylesheet" href="./style.css"><title>COZY BISTRO · 日落餐馆</title>
+<style>
+.order-body{flex-wrap:wrap}
+.order-body .plating-action{border:1px solid #e6d4a3;background:#3b6456;color:#f7e5b7;border-radius:8px;padding:10px 12px;font-weight:800;font-size:10px;white-space:nowrap;cursor:pointer;transition:background .2s}
+.order-body .plating-action:hover{background:#4f8066}
+.plating-overlay{position:fixed;inset:0;z-index:35;display:grid;place-items:center;padding:20px;background:rgba(5,22,25,.83);backdrop-filter:blur(13px)}
+.plating-overlay[hidden]{display:none}
+.plating-panel{width:min(580px,100%);padding:34px;position:relative;border-radius:22px;border:1px solid #e9d9ae70;background:linear-gradient(150deg,#284b47,#142e34 72%);box-shadow:0 25px 95px #000a;color:#f5ebd8}
+.plating-kicker{color:#eacfa2;font-size:10px;letter-spacing:.23em;font-weight:700}
+.plating-panel h2{font-family:Georgia,'Microsoft YaHei',serif;font-size:clamp(25px,5vw,40px);margin:14px 0 8px;font-weight:600}
+.plating-panel p{font-size:12px;color:#b9d0c3;line-height:1.9;margin:0 0 16px}
+.plating-dish{padding:14px 16px;background:#ffffff0a;border-radius:11px;border:1px solid #d7e0c42e;font-size:14px;font-weight:700;margin:20px 0 30px}
+.plating-track{height:70px;border-radius:14px;border:1px solid #d9dfbc56;background:linear-gradient(90deg,#193a3a,#426452 50%,#1d3d3c);position:relative;margin:20px 0 10px;overflow:hidden}
+.plating-target{position:absolute;top:0;bottom:0;width:12%;transform:translateX(-50%);background:linear-gradient(90deg,transparent,#d5e99a55,#e9f7ac99,#d5e99a55,transparent);border-left:1px dashed #edf5be; border-right:1px dashed #edf5be}
+.plating-needle{position:absolute;left:0;top:6px;bottom:6px;width:4px;transform:translateX(-50%);background:#fff2df;border-radius:3px;box-shadow:0 0 8px #fff8d0,0 0 19px #fce28c}
+.plating-meter-note{display:flex;justify-content:space-between;gap:12px;color:#b9cfc0;font-size:11px}
+.plating-meter-note b{font-variant-numeric:tabular-nums;color:#f3dba6}
+.plating-actions{display:flex;align-items:center;gap:12px;margin-top:26px}
+.plating-actions button{border-radius:10px;padding:14px 22px;border:1px solid #e1d5b677;cursor:pointer;font-weight:800}
+#platingStop{flex:1;color:#16382d;background:linear-gradient(120deg,#e9e9ba,#a3d2ac)}
+#platingCancel{background:transparent;color:#d5dfd1}
+@media(max-width:550px){.plating-panel{padding:24px}.plating-actions{flex-direction:column}.plating-actions button{width:100%}.order-body .plating-action{flex:1}}
+</style>
+</head><body>
 <div class="app-frame">
 <header class="topbar">
  <a class="brand" target="_blank" rel="noopener" href="https://github.com/AincFh/cozy-bistro-sim" title="GitHub 开源仓库"><span class="brand-seal"><svg width="33" height="33" viewBox="0 0 36 36" fill="none"><path d="M7 21h22c-1 7-6 10-11 10S8 28 7 21Z" stroke="currentColor" stroke-width="1.65"/><path d="M8 20h20M11 15c-1-4 3-5 1-8M18 15c-1-4 3-5 1-8M25 15c-1-4 3-5 1-8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><span>COZY <strong>BISTRO</strong><small>日落餐馆 · A LITTLE PLACE TO CALL YOURS</small></span></a>
@@ -53,6 +76,21 @@
 </main></div>
 </div>
 <div id="sheetOverlay" class="sheet-overlay" hidden><section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"><div class="sheet-head"><div><span class="eyebrow" id="sheetTag">LITTLE DETAILS</span><h2 id="sheetTitle">餐厅菜单</h2><p id="sheetDesc"></p></div><button id="closeSheet" class="sheet-close" aria-label="关闭">×</button></div><div id="sheetBody" class="sheet-body"></div></section></div>
+
+<div id="platingOverlay" class="plating-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="platingTitle">
+ <section class="plating-panel">
+  <div class="plating-kicker">CHEF'S FINISHING TOUCH / HANDS-ON MINI GAME</div>
+  <h2 id="platingTitle">精致摆盘 · 把握时机</h2>
+  <p>观察移动的亮线，在它进入金色区域时按空格或点击完成摆盘。越接近中心，获得的额外小费与经验越多。</p>
+  <div id="platingDish" class="plating-dish">准备中的料理</div>
+  <div class="plating-track" aria-label="摆盘精度游戏：移动指针与目标区域">
+   <div class="plating-target" id="platingTarget"></div>
+   <div class="plating-needle" id="platingNeedle"></div>
+  </div>
+  <div class="plating-meter-note"><span>PERFECT TIMING / 精准命中</span><b id="platingTime">5.5 s</b></div>
+  <div class="plating-actions"><button id="platingStop" type="button">完成摆盘 · 空格键</button><button id="platingCancel" type="button">返回普通上菜</button></div>
+ </section>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="intro" id="intro"><div class="intro-backdrop"></div><div class="intro-copy"><div class="intro-brand">AN ORIGINAL LITTLE MANAGEMENT GAME</div><div class="intro-mark">✦</div><h1>COZY<br><i>BISTRO.</i></h1><div class="intro-cn">日 落 餐 馆</div><p>一间属于你的街角小店。<br>从第一杯柠檬茶开始，慢慢经营出令人想念的味道。</p><button id="enterBtn">走进小店　↗</button><div class="intro-foot">BUILD YOUR DREAM · SERVE WITH HEART · GROW EVERY DAY</div></div></div>
 <input id="importFile" type="file" accept=".json,application/json" hidden>
