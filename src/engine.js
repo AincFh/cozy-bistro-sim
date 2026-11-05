@@ -47,11 +47,46 @@ export function createGame(seed=20261105){
  return {version:SAVE_VERSION,seed:integer(seed,0,4294967295)>>>0,day:1,phase:'planning',money:270,rep:65,xp:0,totalServed:0,totalMissed:0,
  pantry:{...DEFAULT_PANTRY},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
  elapsed:0,duration:110,scheduled:[],orders:[],idSeq:0,
- today:{served:0,missed:0,revenue:0,tips:0,spent:0},
+ today:{served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0},
  lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0,
- assistantHired:false,assistantCooldown:0,assistantServed:0,todayAssistantServed:0};
+ assistantHired:false,assistantCooldown:0,assistantServed:0,todayAssistantServed:0,
+ contract:null,contractsWon:0,contractsLost:0};
 }
 export function rng(state){state.seed=(Math.imul(state.seed,1664525)+1013904223)>>>0;return state.seed/4294967296;}
+/**
+ * Neighborhood catering adds risky, multi-plate commitments to normal walk-in
+ * service. Deposits are held at acceptance; the player receives the deposit
+ * back plus a premium bonus ONLY after delivering every contracted dish.
+ * Both generated offers depend on persisted state, not ambient Math.random.
+ */
+export function contractOffers(state){
+ const menu=recipesAvailable(state);if(!menu.length)return[];
+ const count=2+(state.day>=4?1:0)+(state.day>=10?1:0);
+ const first=(state.day+(state.seed>>>0))%menu.length;
+ return [0,1].map(i=>{
+  const recipe=menu[(first+i)%menu.length];
+  const deposit=Math.max(20,Math.round(recipe.price*count*.45));
+  const bonus=Math.round(recipe.price*count*.82)+(state.day>=6?25:0);
+  return {id:'neighborhood-'+state.day+'-'+i,recipe:recipe.id,count,deposit,bonus,
+   customer:i===0?'街区读书会':'社区花房',description:i===0?'为邻里活动准备整套餐点':'按时交付花房小型聚会的料理'};
+ });
+}
+export function acceptContract(state,id){
+ if(state.phase!=='planning')return {ok:false,error:'社区订餐只能在开业前接取'};
+ if(state.contract)return {ok:false,error:'今日已经接取过一份社区订单'};
+ const offer=contractOffers(state).find(x=>x.id===id);
+ if(!offer)return {ok:false,error:'这份订餐委托不存在'};
+ if(state.money<offer.deposit)return {ok:false,error:'营业资金不足，无法缴纳订餐押金'};
+ state.money-=offer.deposit;state.today.spent+=offer.deposit;
+ state.contract={...offer,day:state.day,delivered:0,status:'accepted'};
+ return {ok:true,contract:state.contract};
+}
+function failContract(state){
+ const contract=state.contract;
+ if(!contract||contract.status!=='active')return false;
+ contract.status='failed';state.contractsLost++;
+ state.rep=clamp(state.rep-4,0,100);return true;
+}
 export const ASSISTANT = Object.freeze({name:'小森 · 兼职料理助手',minimumDay:2,wage:98,cooldown:4.5,initialDelay:3.2});
 export function canHireAssistant(state){
  return state.phase==='planning'&&state.day>=ASSISTANT.minimumDay&&!state.assistantHired&&state.money>=ASSISTANT.wage;
@@ -99,9 +134,18 @@ export function startDay(state){
   const patience=34+rng(state)*14+(state.upgrades.ambience||0)*8;
   state.scheduled.push({id:++state.idSeq,recipe:recipe.id,customer,arrival:+arrival.toFixed(2),patience:+patience.toFixed(1),mood:Math.floor(rng(state)*5)});
  }
+ if(state.contract?.status==='accepted'&&state.contract.day===state.day){
+  state.contract.status='active';
+  for(let i=0;i<state.contract.count;i++){
+   state.scheduled.push({id:++state.idSeq,recipe:state.contract.recipe,
+    customer:state.contract.customer,arrival:7+i*12,patience:76+(state.upgrades.ambience||0)*8,
+    mood:4,contract:true});
+  }
+ }
  state.scheduled.sort((a,b)=>a.arrival-b.arrival);
  state.duration=Math.ceil(state.scheduled.at(-1).arrival+28);
- state.phase='open';state.assistantCooldown=ASSISTANT.initialDelay;return{ok:true,count,duration:state.duration};
+ state.phase='open';state.assistantCooldown=ASSISTANT.initialDelay;
+ return{ok:true,count:count+(state.contract?.status==='active'?state.contract.count:0),duration:state.duration};
 }
 export function cookOrder(state,id){
  if(state.phase!=='open')return{ok:false,error:'餐厅目前未营业'};
@@ -125,7 +169,21 @@ export function serveOrder(state,id){
  state.rep=clamp(state.rep+(quality>.33?1:-1),0,100);
  state.today.served++;state.today.revenue+=recipe.price;state.today.tips+=tip;state.totalServed++;
  if(state.assistantAction){state.assistantServed++;state.todayAssistantServed++;}
- state.orders.splice(index,1);return{ok:true,recipe,tip,gain,quality};
+ let contractBonus=0,depositRefund=0,contractCompleted=false;
+ const contract=state.contract;
+ if(order.contract&&contract?.status==='active'&&contract.recipe===order.recipe){
+  contract.delivered++;
+  if(contract.delivered>=contract.count){
+   contract.status='completed';contractCompleted=true;state.contractsWon++;
+   contractBonus=contract.bonus;depositRefund=contract.deposit;
+   state.money+=contractBonus+depositRefund;
+   state.today.revenue+=contractBonus+depositRefund;
+   state.today.contractBonus=(state.today.contractBonus||0)+contractBonus;
+   state.rep=clamp(state.rep+3,0,100);state.xp+=40+10*contract.count;
+  }
+ }
+ state.orders.splice(index,1);
+ return{ok:true,recipe,tip,gain,quality,contractCompleted,contractBonus,depositRefund};
 }
 // Each helper action must use the normal cooking/serving rules. No ingredients,
 // money or chef slots are granted by automation.
@@ -152,11 +210,18 @@ function missOrder(state,index){
  const order=state.orders[index];
  state.today.missed++;state.totalMissed++;
  state.rep=clamp(state.rep-3,0,100);
+ if(order.contract)failContract(state);
  state.orders.splice(index,1);return order;
 }
 export function finishDay(state){
  if(state.phase!=='open'||state.scheduled.length||state.orders.length||state.elapsed<state.duration-10)return false;
- const summary={day:state.day,...state.today,assistantServed:state.todayAssistantServed,assistantWages:state.assistantHired?ASSISTANT.wage:0,rep:state.rep,balance:state.money};
+ if(state.contract?.status==='active')failContract(state);
+ const summary={day:state.day,...state.today,assistantServed:state.todayAssistantServed,
+  assistantWages:state.assistantHired?ASSISTANT.wage:0,
+  contractStatus:state.contract?.status||null,contractRecipe:state.contract?.recipe||null,
+  contractDelivered:state.contract?.delivered||0,
+  contractRequired:state.contract?.count||0,
+  rep:state.rep,balance:state.money};
  state.history.push(summary);state.history=state.history.slice(-24);
  state.lastSummary=summary;state.phase='summary';return true;
 }
@@ -170,7 +235,7 @@ export function advance(state,seconds){
   while(state.scheduled.length&&state.scheduled[0].arrival<=state.elapsed){
    const g=state.scheduled.shift();
    state.orders.push({id:g.id,recipe:g.recipe,customer:g.customer,status:'waiting',
-    patience:g.patience,maxPatience:g.patience,cookLeft:0,cookTotal:0,mood:g.mood});
+    patience:g.patience,maxPatience:g.patience,cookLeft:0,cookTotal:0,mood:g.mood,contract:g.contract===true});
    events.push({type:'arrival',id:g.id,recipe:g.recipe,customer:g.customer});
   }
   if(state.assistantHired){state.assistantCooldown=Math.max(0,state.assistantCooldown-dt);const action=runAssistant(state);if(action)events.push(action);}
@@ -189,7 +254,7 @@ export function advance(state,seconds){
 export function nextDay(state){
  if(state.phase!=='summary')return false;
  state.day++;state.phase='planning';state.elapsed=0;state.duration=110;state.orders=[];state.scheduled=[];
- state.today={served:0,missed:0,revenue:0,tips:0,spent:0};state.assistantHired=false;state.assistantCooldown=0;state.todayAssistantServed=0;return true;
+ state.today={served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0};state.assistantHired=false;state.assistantCooldown=0;state.todayAssistantServed=0;state.contract=null;return true;
 }
 export function achievements(state){
  return [
@@ -200,7 +265,9 @@ export function achievements(state){
   {id:'tenDays',name:'十日老店',note:'经营满十天',earned:state.day>=10},
   {id:'reputation',name:'五星好评',note:'口碑达到 95 分',earned:state.rep>=95},
   {id:'rich',name:'金色收银台',note:'持有 2000 金币',earned:state.money>=2000},
-  {id:'partnership',name:'街角的默契',note:'兼职助手累计协助完成 20 次上菜',earned:(state.assistantServed||0)>=20}
+  {id:'partnership',name:'街角的默契',note:'兼职助手累计协助完成 20 次上菜',earned:(state.assistantServed||0)>=20},
+  {id:'neighbor',name:'邻里的信任',note:'按时完成首份社区订餐委托',earned:(state.contractsWon||0)>=1},
+  {id:'catering',name:'餐饮承办达人',note:'累计完成 10 份社区订餐委托',earned:(state.contractsWon||0)>=10}
  ];
 }
 export function serialize(state){return JSON.stringify(state);}
@@ -214,6 +281,16 @@ export function restore(raw){
   d.lastAidDay=integer(val.lastAidDay??0,0,1000);
   d.assistantHired=val.assistantHired===true;d.assistantCooldown=clamp(val.assistantCooldown??0,0,ASSISTANT.cooldown);
   d.assistantServed=integer(val.assistantServed??0,0,1e9);d.todayAssistantServed=integer(val.todayAssistantServed??0,0,1e9);d.assistantAction=false;
+  d.contractsWon=integer(val.contractsWon??0,0,1e6);d.contractsLost=integer(val.contractsLost??0,0,1e6);
+  const c=val.contract;
+  if(c&&typeof c==='object'&&recipeById(c.recipe)&&['accepted','active','failed','completed'].includes(c.status)){
+   const count=integer(c.count,2,4),delivered=integer(c.delivered,0,count),day=integer(c.day,1,1000);
+   if(day===d.day){
+    d.contract={id:String(c.id||'').slice(0,60),day,recipe:c.recipe,count,delivered,
+     customer:String(c.customer||'邻里委托').slice(0,30),description:String(c.description||'').slice(0,100),
+     deposit:integer(c.deposit,0,10000),bonus:integer(c.bonus,0,10000),status:c.status};
+   }
+  }
   d.phase=['planning','open','summary'].includes(val.phase)?val.phase:'planning';
   for(const k of Object.keys(d.pantry))d.pantry[k]=integer(val.pantry?.[k]??d.pantry[k],0,1e7);
   for(const u of UPGRADES)d.upgrades[u.id]=integer(val.upgrades?.[u.id]??0,0,u.max);
@@ -221,16 +298,21 @@ export function restore(raw){
   d.orders=Array.isArray(val.orders)?val.orders.filter(o=>Number.isInteger(o.id)&&recipeById(o.recipe)&&['waiting','cooking','ready'].includes(o.status)).slice(0,70).map(o=>({
     id:o.id,recipe:o.recipe,customer:String(o.customer||'客人').slice(0,30),status:o.status,
     patience:clamp(o.patience,0,300),maxPatience:clamp(o.maxPatience,1,300),cookLeft:clamp(o.cookLeft,0,120),
-    cookTotal:clamp(o.cookTotal,0,120),mood:integer(o.mood,0,4)
+    cookTotal:clamp(o.cookTotal,0,120),mood:integer(o.mood,0,4),contract:o.contract===true
   })):[];
   d.scheduled=Array.isArray(val.scheduled)?val.scheduled.filter(o=>Number.isInteger(o.id)&&recipeById(o.recipe)).slice(0,100).map(o=>({
     id:o.id,recipe:o.recipe,customer:String(o.customer||'客人').slice(0,30),arrival:clamp(o.arrival,0,1e6),
-    patience:clamp(o.patience,1,300),mood:integer(o.mood,0,4)
+    patience:clamp(o.patience,1,300),mood:integer(o.mood,0,4),contract:o.contract===true
   })):[];d.scheduled.sort((a,b)=>a.arrival-b.arrival);
   const today=val.today||{};for(const k of Object.keys(d.today))d.today[k]=integer(today[k]??0,0,1e9);
   d.history=Array.isArray(val.history)?val.history.filter(x=>x&&Number.isInteger(x.day)).slice(-24).map(h=>({
     day:integer(h.day,1,1000),served:integer(h.served),missed:integer(h.missed),revenue:integer(h.revenue),
-    tips:integer(h.tips),spent:integer(h.spent),assistantServed:integer(h.assistantServed??0),assistantWages:integer(h.assistantWages??0),rep:integer(h.rep,0,100),balance:integer(h.balance)
+    tips:integer(h.tips),spent:integer(h.spent),assistantServed:integer(h.assistantServed??0),
+    assistantWages:integer(h.assistantWages??0),contractBonus:integer(h.contractBonus??0),
+    contractStatus:['completed','failed'].includes(h.contractStatus)?h.contractStatus:null,
+    contractRecipe:recipeById(h.contractRecipe)?h.contractRecipe:null,
+    contractDelivered:integer(h.contractDelivered??0,0,4),contractRequired:integer(h.contractRequired??0,0,4),
+    rep:integer(h.rep,0,100),balance:integer(h.balance)
   })):[];
   d.lastSummary=d.phase==='summary'?d.history.at(-1)||null:null;
   d.sound=val.sound!==false;d.gameSpeed=[1,2].includes(val.gameSpeed)?val.gameSpeed:1;

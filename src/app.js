@@ -1,6 +1,6 @@
 import {
  SAVE_VERSION,INGREDIENTS,MENU,PACKS,UPGRADES,createGame,restore,serialize,recipesAvailable,recipeById,ingredientAvailable,slots,
- levelOf,upgradePrice,buyPackage,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant
+ levelOf,upgradePrice,buyPackage,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract
 } from './engine.js';
 import {initializeRoom,updateRoom} from './scene.js';
 const $=id=>document.getElementById(id),STORAGE='cozy-bistro-save-v1';
@@ -55,7 +55,7 @@ function updateOrderHTML(){
   const ready=order.status==='ready',cooking=order.status==='cooking',canCook=!cooking&&!ready&&running<slots(state)&&ingredientAvailable(state,dish);
   const label=ready?'立即上菜':cooking?'制作中…':canCook?'开始制作':running>=slots(state)?'制作台已满':'食材不足';
   const pPercent=cooking?Math.round((1-order.cookLeft/Math.max(.1,order.cookTotal))*100):Math.round(ratio*100);
-  const stateLabel=ready?'等待上菜':cooking?'厨师制作中':'等待点餐';
+  const stateLabel=(order.contract?'团体订餐 · ':'')+(ready?'等待上菜':cooking?'厨师制作中':'等待点餐');
   const action=ready?'serve':'cook';
   const avatarColor=['#e1ab96','#b9bc98','#9db5a3','#c9b0ca','#e1c295'][order.mood%5];
   return "<article class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>◈ "+dish.price+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button></div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
@@ -80,7 +80,7 @@ function render(){
  const badge=$('statusBadge'),primary=$('primaryAction');
  if(state.phase==='planning'){
   setText('phaseTag','A NEW DAY BEGINS');setText('sectionTitle','把日子过成好风景.');
-  setText('sectionDesc','先补足库存、规划厨房，再开门迎接今天的第一位客人。');
+  setText('sectionDesc',state.contract?'今日已签约 '+state.contract.customer+' 的订餐委托，记得预留 '+state.contract.count+' 份 '+recipeById(state.contract.recipe).name+'。':'先补足库存、规划厨房，再开门迎接今天的第一位客人。');
   setText('panelHeading','今天的营业计划');setText('actionLead','备好原料与设备，开始今天的餐馆经营。');
   badge.textContent='PREPARE';primary.innerHTML='开门营业　<span>→</span>';primary.disabled=false;
   setText('objectiveText','准备食材，迎接新的营业日');setText('objectivePercent','0%');$('dayBar').style.width='0%';
@@ -94,7 +94,7 @@ function render(){
   const pct=total?Math.round(state.today.served/total*100):0;
   setText('objectiveText','顾客满意度 · 已服务 '+state.today.served+' / '+total+' 位');
   setText('objectivePercent',pct+'%');$('dayBar').style.width=pct+'%';
-  setText('sceneState',state.assistantHired?'兼职助手正在协助营业 · 今日完成 '+state.todayAssistantServed+' 单':state.orders.some(x=>x.status==='cooking')?'主厨正为客人制作料理':state.orders.length?'客人正在耐心等待':'街角的小店正在迎接客人');
+  setText('sceneState',state.contract?.status==='active'?'团体订餐 '+state.contract.delivered+'/'+state.contract.count+' 已交付 · 和散客共用制作台':state.assistantHired?'兼职助手正在协助营业 · 今日完成 '+state.todayAssistantServed+' 单':state.orders.some(x=>x.status==='cooking')?'主厨正为客人制作料理':state.orders.length?'客人正在耐心等待':'街角的小店正在迎接客人');
  }else{
   setText('phaseTag','THE DAY IS DONE');setText('sectionTitle','又是一段好时光.');
   setText('sectionDesc','今天的经营已经结算。回看收获，继续下一天的生活。');
@@ -103,7 +103,7 @@ function render(){
   const total=state.today.served+state.today.missed;const pct=total?Math.round(state.today.served/total*100):100;
   setText('objectiveText','今日客人满意率 '+pct+'%');
   setText('objectivePercent','100%');$('dayBar').style.width='100%';
-  setText('sceneState','温暖灯光留到明天，今天辛苦了');
+  setText('sceneState',state.contract?.status==='completed'?'社区订餐已按时交付 · 收到额外奖金':state.contract?.status==='failed'?'社区订餐未完成 · 押金已损失':'温暖灯光留到明天，今天辛苦了');
  }
  updateOrderHTML();updateRoom($('room'),state);
 }
@@ -124,7 +124,7 @@ $('orderList').addEventListener('click',e=>{
  const b=e.target.closest('button[data-order]');if(!b)return;
  const id=Number(b.dataset.order),action=b.dataset.action;
  const result=action==='cook'?cookOrder(state,id):serveOrder(state,id);
- if(result.ok){toast(action==='cook'?'主厨开始制作 '+result.recipe.name:'上菜成功！收到 ◈ '+result.gain+'（含小费 '+result.tip+'）',action==='cook'?'cook':'success');save();}
+ if(result.ok){toast(result.contractCompleted?'团体订餐完成！额外奖励 ◈ '+result.contractBonus+'，返还押金 ◈ '+result.depositRefund:action==='cook'?'主厨开始制作 '+result.recipe.name:'上菜成功！收到 ◈ '+result.gain+'（含小费 '+result.tip+'）',action==='cook'?'cook':'success');save();}
  else toast(result.error,'miss');
  render();
 });
@@ -162,6 +162,23 @@ function staffContents(){
  card('排班与收支','BUSINESS BALANCE','助手工资被记录为当天支出。刚开业时可能不划算；等菜品、客流量和制作台升级后，才更容易覆盖人力成本。','◷','今日已支出 ◈ '+currency(state.today.spent),null) +
  "</div>";
 }
+function contractsContents(){
+ const c=state.contract;
+ if(c){
+  const dish=recipeById(c.recipe);
+  const status={accepted:'已接单 · 等待开门',active:'制作与交付中',completed:'全部交付 · 已结算',failed:'未按时完成 · 押金损失'}[c.status]||'未确认';
+  return "<div class='contract-summary'><span class='subline'>NEIGHBORHOOD CATERING / 社区委托</span><h3>"+safe(c.customer)+"</h3><p>"+safe(c.description)+"</p><div class='contract-numbers'><span>订餐 <b>"+safe(dish.name)+" × "+c.count+"</b></span><span>已交付 <b>"+c.delivered+" / "+c.count+"</b></span><span>完成奖金 <b>◈ "+c.bonus+"</b></span><span>可退押金 <b>◈ "+c.deposit+"</b></span></div><div class='contract-state "+c.status+"'>"+status+"</div></div>"+
+   "<p class='muted'>这份委托与散客共用真实库存和厨房制作台。每份料理必须先制作再上菜；助手也遵守相同规则。任何一份超时都会导致该委托失败，不能退还押金。已领取的奖励不会重复发放。</p>"+
+   "<h3 class='sheet-section-title'>所需原料</h3><div class='stock-grid'>"+
+   Object.entries(dish.recipe).map(([k,v])=>"<div class='stock-cell'><span class='icon'>"+INGREDIENTS[k].emoji+"</span><strong>"+INGREDIENTS[k].name+"</strong><small>全单需 "+(v*c.count)+" · 剩余库存 "+(state.pantry[k]||0)+"</small></div>").join('')+"</div>";
+ }
+ const offers=contractOffers(state);
+ return "<p class='muted'>营业前可选择一份邻里团体订餐。接单先扣押金；实际制作、按时上菜并交付全部餐点才能返还押金并获得奖励。建议先检查原料和厨房并发能力。</p><div class='sheet-stats'><div><strong>"+(state.contractsWon||0)+"</strong><small>历史成功委托</small></div><div><strong>"+(state.contractsLost||0)+"</strong><small>历史失败委托</small></div><div><strong>最多 1 份</strong><small>每营业日限接</small></div></div><div class='sheet-grid'>"+
+ offers.map(o=>{const dish=recipeById(o.recipe);
+   const inventory=Object.entries(dish.recipe).map(([k,v])=>INGREDIENTS[k].name+" ×"+(v*o.count)+" (库存 "+(state.pantry[k]||0)+")").join(" · ");
+   return card(o.customer,'NEIGHBORHOOD CATERING',o.description+'。需要 '+dish.name+' ×'+o.count+'；'+inventory,'▣','押金 ◈ '+o.deposit+' / 额外奖金 ◈ '+o.bonus,'接受委托','contract:'+o.id,state.phase!=='planning'||state.money<o.deposit);
+ }).join('')+"</div>";
+}
 function journalContents(){
  const allAchievements=achievements(state),earned=allAchievements.filter(x=>x.earned).length;
  let html="<div class='sheet-stats'><div><strong>"+state.totalServed+"</strong><small>累计接待</small></div><div><strong>"+state.totalMissed+"</strong><small>累计流失</small></div><div><strong>"+state.day+"</strong><small>经营第几天</small></div><div><strong>"+earned+" / "+allAchievements.length+"</strong><small>已得成就</small></div></div>";
@@ -170,6 +187,7 @@ function journalContents(){
   html+="<h3 class='sheet-section-title'>最近的每日收入</h3><div class='ledger-bars'>"+h.map(x=>"<div title='第"+x.day+"天：收入 "+(x.revenue+x.tips)+"' style='height:"+Math.max(2,100*(x.revenue+x.tips)/max)+"%'><span>"+x.day+"</span></div>").join('')+"</div>";
   html+="<h3 class='sheet-section-title' style='margin-top:34px'>经营流水</h3>"+[...state.history].reverse().map(x=>"<div class='ledger-row'><strong>DAY "+String(x.day).padStart(2,'0')+"</strong><span>完成 "+x.served+" 单　·　流失 "+x.missed+" 单</span><em>收入 ◈ "+currency(x.revenue+x.tips)+" / 支出 ◈ "+currency(x.spent)+"</em></div>").join('');
  }else html+="<p class='muted'>营业日结束后，这里会自动出现每日账本和收入走势图。</p>";
+ html+="<h3 class='sheet-section-title'>社区委托记录</h3><p class='muted'>累计完成 "+(state.contractsWon||0)+" 份，未完成 "+(state.contractsLost||0)+" 份。委托奖励记入当天账本，押金在全数交付后退还。</p>";
  html+="<h3 class='sheet-section-title'>兼职协助记录</h3><p class='muted'>累计兼职上菜 "+(state.assistantServed||0)+" 单 · 今日兼职上菜 "+(state.todayAssistantServed||0)+" 单。兼职工资计入当日支出，不另扣费。</p>";
  html+="<h3 class='sheet-section-title' style='margin-top:26px'>经营成就</h3><div class='sheet-grid'>"+achievements(state).map(a=>card(a.name,a.earned?'ACHIEVEMENT EARNED':'LOCKED GOAL',a.note,a.earned?'✦':'◇',a.earned?'已达成':'尚未达成',null,false,a.earned?'':'locked-card')).join('')+"</div>";
  return html;
@@ -185,6 +203,7 @@ const sheets={
  stock:['FRESH FROM THE MARKET','采购与备货','备足客人最爱的食材，让厨房可以持续制作。',stockContents],
  upgrades:['THE DREAM GROWS','餐厅升级','投入合理预算，提升制作速度、客人耐心和餐馆经营效率。',upgradesContents],
  staff:['THE LITTLE TEAM','兼职与排班','安排一个真正参与制作和上菜的兼职助手。',staffContents],
+ contracts:['NEIGHBORHOOD CATERING','社区订餐委托','按时完成团体订餐，赢取额外收益并建立街区口碑。',contractsContents],
  journal:['THE BUSINESS LEDGER','经营账本','收入、口碑、成就与每日财务都在这里。',journalContents],
  backup:['SAVE & SETTINGS','存档与设置','导出备份、更改音效，以及管理本地进度。',backupContents],
  help:['FIELD GUIDE','经营说明','从第一次开门开始，建立自己的街角餐馆。',()=>"<div class='sheet-grid'>"+
@@ -192,9 +211,10 @@ const sheets={
   card('02 · 开门营业','OPEN SHOP','进入经营总览，点击「开门营业」。客人会按照日程逐渐进入小店。','◷','支持 1× / 2× 速度',null)+
   card('03 · 制作订单','COOK','在订单卡片点击「开始制作」，厨房按制作台数量并行工作。食材不足时无法制作。','⌁','升级可提升制作效率',null)+
   card('04 · 聘用兼职助手','STAFF','第 2 天起可以营业前按天聘用兼职；助理自动制作或上菜，但需要支付固定工资。','♧','工资计入今日支出',null)+
-  card('04 · 及时上菜','SERVE','料理完成后点击「立即上菜」，赚取售价、小费和经验。等待太久的客人会离开。','♥','提高口碑可提高评级',null)+
-  card('05 · 每日结算','DAY REPORT','当天全部顾客处理完毕后自动结算。查看账本，选择进入下一天。','◈','记录最近 24 天',null)+
-  card('06 · 保存进度','LOCAL SAVE','浏览器自动存档，也能手动导出 JSON 备份。此版本无需登录，也没有真实支付。','✦','当前版本 v1',null)+"</div>"]
+  card('05 · 邻里团体订餐','CATERING','营业前可签约一份付押金的团体订餐，多份料理与散客共用厨房和食材，必须全部交付才能返还押金与领取奖金。','▣','通过专属社区订餐菜单接单',null)+
+  card('06 · 及时上菜','SERVE','料理完成后点击「立即上菜」，赚取售价、小费和经验。等待太久的客人会离开。','♥','提高口碑可提高评级',null)+
+  card('07 · 每日结算','DAY REPORT','当天全部顾客处理完毕后自动结算。查看账本，选择进入下一天。','◈','记录最近 24 天',null)+
+  card('08 · 保存进度','LOCAL SAVE','浏览器自动存档，也能手动导出 JSON 备份。此版本无需登录，也没有真实支付。','✦','当前版本 v1',null)+"</div>"]
 };
 function openSheet(name){
  if(name==='service'){closeSheet();return}
@@ -233,6 +253,7 @@ $('sheetBody').addEventListener('click',e=>{
   if(result.ok){toast(result.item.name+' 升级完成！','success');save();openSheet('upgrades');render();}
   else toast(result.error,'miss');return;
  }
+ if(cmd.startsWith('contract:')){const result=acceptContract(state,cmd.slice(9));if(result.ok){save();toast('已接受 '+result.contract.customer+' 的社区订餐，押金 ◈ '+result.contract.deposit+' 已锁定','success');openSheet('contracts');render();}else toast(result.error,'miss');return;}
  if(cmd==='hire-assistant'){const result=hireAssistant(state);if(result.ok){save();toast('已经安排 '+result.assistant+' 今日到岗，支出 ◈ '+result.wage,'success');openSheet('staff');render();}else toast(result.error,'miss');return;}
  if(cmd==='aid'){const result=claimSupport(state);if(result.ok){save();toast('已收到邻里提供的应急食材。','success');openSheet('stock');render();}else toast(result.error,'miss');return;}
  if(cmd==='export'){
