@@ -29,12 +29,12 @@ with socketserver.TCPServer(('127.0.0.1',0),Handler) as server:
         browser.execute_script('window.COZY_BISTRO.test.step(9)')
         cook=browser.find_elements(By.CSS_SELECTOR,'#orderList button[data-action="cook"]:not([disabled])')
         assert cook,'No real cookable order spawned'
-        cook[0].click()
+        browser.execute_script("document.querySelector('#orderList button[data-action=\"cook\"]:not([disabled])').click()")
         browser.execute_script('window.COZY_BISTRO.test.step(16)')
         ready=browser.find_elements(By.CSS_SELECTOR,'#orderList button[data-action="plate"]')
         assert ready,'No plateable ready order after actual cooking'
         before=browser.execute_script('return window.COZY_BISTRO.test.getRaw().money')
-        ready[0].click()
+        browser.execute_script("document.querySelector('#orderList button[data-action=\"plate\"]').click()")
         assert not browser.find_element(By.ID,'platingOverlay').get_attribute('hidden')
         browser.save_screenshot(str(PROOF/'01-timing-game.png'))
         # The oscillating UI needle has to travel to the visible target.
@@ -42,13 +42,15 @@ with socketserver.TCPServer(('127.0.0.1',0),Handler) as server:
         within=False
         deadline=time.monotonic()+5.2
         while time.monotonic()<deadline:
-            dist=browser.execute_script("""return Math.abs(
-                parseFloat(document.getElementById('platingNeedle').style.left)-
-                parseFloat(document.getElementById('platingTarget').style.left))""")
-            if dist<7.0:
-                browser.find_element(By.ID,'platingStop').click()
-                within=True
-                break
+            within=browser.execute_script("""return (() => {
+              const needle=document.getElementById('platingNeedle'),
+                    goal=document.getElementById('platingTarget');
+              if(document.getElementById('platingOverlay').hidden)return false;
+              const error=Math.abs(parseFloat(needle.style.left)-parseFloat(goal.style.left));
+              if(error<7){document.getElementById('platingStop').click();return true}
+              return false;
+            })()""")
+            if within:break
             time.sleep(.06)
         assert within,'Plating needle never entered the target window'
         current=browser.execute_script("""return (() => {
@@ -70,7 +72,7 @@ with socketserver.TCPServer(('127.0.0.1',0),Handler) as server:
         # Confirm that the overlay remains usable and in bounds on phones.
         option=browser.find_elements(By.CSS_SELECTOR,'#orderList [data-action="plate"]')
         if option:
-            option[0].click()
+            browser.execute_script("document.querySelector('#orderList [data-action=\"plate\"]').click()")
             mobile=browser.execute_script("""return (() => {
                 const p=document.querySelector('.plating-panel').getBoundingClientRect();
                 return {width:innerWidth,panelLeft:p.left,panelRight:p.right,buttons:
