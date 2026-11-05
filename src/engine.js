@@ -329,6 +329,8 @@ export function finishDay(state){
   contractStatus:state.contract?.status||null,contractRecipe:state.contract?.recipe||null,
   contractDelivered:state.contract?.delivered||0,
   contractRequired:state.contract?.count||0,
+  specialDish:state.dailySpecial||null,
+  specialBonus:state.today.specialBonus||0,specialServed:state.today.specialServed||0,
   platingBonus:state.today.platingBonus||0,platingPerfect:state.platingPerfect||0,
   rep:state.rep,balance:state.money};
  state.history.push(summary);state.history=state.history.slice(-24);
@@ -363,7 +365,7 @@ export function advance(state,seconds){
 export function nextDay(state){
  if(state.phase!=='summary')return false;
  state.day++;state.phase='planning';state.elapsed=0;state.duration=110;state.orders=[];state.scheduled=[];
- state.today={served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0};state.assistantHired=false;state.assistantCooldown=0;state.todayAssistantServed=0;state.contract=null;return true;
+ state.today={served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0};state.dailySpecial=null;state.assistantHired=false;state.assistantCooldown=0;state.todayAssistantServed=0;state.contract=null;return true;
 }
 export function achievements(state){
  return [
@@ -378,7 +380,9 @@ export function achievements(state){
   {id:'neighbor',name:'邻里的信任',note:'按时完成首份社区订餐委托',earned:(state.contractsWon||0)>=1},
   {id:'catering',name:'餐饮承办达人',note:'累计完成 10 份社区订餐委托',earned:(state.contractsWon||0)>=10},
   {id:'plating',name:'摆盘艺术家',note:'完成 5 次完美摆盘',earned:(state.platingPerfect||0)>=5},
-  {id:'streak',name:'手感正佳',note:'连续 3 次完美摆盘',earned:(state.platingBestStreak||0)>=3}
+  {id:'streak',name:'手感正佳',note:'连续 3 次完美摆盘',earned:(state.platingBestStreak||0)>=3},
+  {id:'marketer',name:'今日推荐主厨',note:'成功举办 5 次餐厅主推活动',earned:(state.specialsLaunched||0)>=5},
+  {id:'favorite',name:'街区招牌',note:'累计卖出 25 份主推菜',earned:(state.specialServed||0)>=25}
  ];
 }
 export function serialize(state){return JSON.stringify(state);}
@@ -393,6 +397,8 @@ export function restore(raw){
   d.assistantHired=val.assistantHired===true;d.assistantCooldown=clamp(val.assistantCooldown??0,0,ASSISTANT.cooldown);
   d.assistantServed=integer(val.assistantServed??0,0,1e9);d.todayAssistantServed=integer(val.todayAssistantServed??0,0,1e9);d.assistantAction=false;
   d.contractsWon=integer(val.contractsWon??0,0,1e6);d.contractsLost=integer(val.contractsLost??0,0,1e6);
+  d.specialsLaunched=integer(val.specialsLaunched??0,0,1e6);d.specialServed=integer(val.specialServed??0,0,1e6);
+  d.dailySpecial=recipeById(val.dailySpecial)?.day<=d.day?val.dailySpecial:null;
   for(const key of ['platingPerfect','platingGood','platingAttempts','platingBestStreak','platingStreak'])
    d[key]=integer(val[key]??0,0,1e6);
   const c=val.contract;
@@ -426,6 +432,7 @@ export function restore(raw){
     contractRecipe:recipeById(h.contractRecipe)?h.contractRecipe:null,
     contractDelivered:integer(h.contractDelivered??0,0,4),contractRequired:integer(h.contractRequired??0,0,4),
     platingBonus:integer(h.platingBonus??0),platingPerfect:integer(h.platingPerfect??0),
+    specialDish:recipeById(h.specialDish)?h.specialDish:null,specialBonus:integer(h.specialBonus??0),specialServed:integer(h.specialServed??0),
     rep:integer(h.rep,0,100),balance:integer(h.balance)
   })):[];
   d.lastSummary=d.phase==='summary'?d.history.at(-1)||null:null;
