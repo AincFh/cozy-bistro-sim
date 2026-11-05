@@ -107,6 +107,50 @@ function render(){
  }
  updateOrderHTML();updateRoom($('room'),state);
 }
+
+/** Manual plating: a timed precision sweep instead of a passive serve click.
+ * Timeout delivers the ready dish without a skill bonus. Sim time is paused.
+ */
+function startPlating(id){
+ const order=state.orders.find(x=>x.id===id&&x.status==='ready');
+ if(!order||state.phase!=='open'||plating)return;
+ const hash=order.id*37+order.recipe.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+ const target=.29+(hash%42)/100;
+ plating={id,target,started:performance.now(),position:0,seconds:5.5};
+ const dish=recipeById(order.recipe);
+ setText('platingDish',dish.name+' · '+order.customer);
+ $('platingTarget').style.left=(100*target)+'%';
+ $('platingOverlay').hidden=false;
+ $('platingStop').focus();
+}
+function closePlating(){plating=null;$('platingOverlay').hidden=true;}
+function finishPlating(expired=false){
+ if(!plating)return;
+ const current=plating;
+ const precision=expired?0:Math.max(0,1-Math.abs(current.position-current.target)/.30);
+ closePlating();
+ const result=serveOrder(state,current.id,{platingScore:precision});
+ if(!result.ok){toast(result.error,'miss');render();return}
+ save();render();
+ const names={perfect:'完美摆盘',good:'精致摆盘',fair:'摆盘合格',miss:'普通完成',standard:'正常上菜'};
+ toast(names[result.plating.grade]+' · 获得 ◈ '+result.gain+'（摆盘奖励 ◈ '+result.plating.bonus+'）','success');
+}
+$('platingStop').onclick=()=>finishPlating(false);
+$('platingCancel').onclick=()=>{closePlating();render()};
+document.addEventListener('keydown',e=>{
+ if(!plating)return;
+ if(e.code==='Space'||e.code==='Enter'){e.preventDefault();finishPlating(false)}
+ else if(e.key==='Escape'){e.preventDefault();closePlating();render()}
+});
+function animatePlating(now){
+ if(!plating)return;
+ const elapsed=(now-plating.started)/1000;
+ if(elapsed>=plating.seconds){finishPlating(true);return}
+ plating.position=.5-.5*Math.cos(elapsed*5.2);
+ $('platingNeedle').style.left=(plating.position*100)+'%';
+ $('platingTime').textContent=(plating.seconds-elapsed).toFixed(1)+' s';
+}
+
 function onPrimary(){
  if(state.phase==='planning'){
   const result=startDay(state);
@@ -301,7 +345,8 @@ $('enterBtn').onclick=()=>{active=true;$('intro').hidden=true;render();toast(sta
 function frame(now){
  requestAnimationFrame(frame);
  const dt=Math.min(.22,Math.max(0,(now-lastFrame)/1000||.016));lastFrame=now;
- if(active&&state.phase==='open'&&$('sheetOverlay').hidden){
+ animatePlating(now);
+ if(active&&state.phase==='open'&&$('sheetOverlay').hidden&&!plating){
   const events=advance(state,dt*state.gameSpeed);
   if(events.length)eventsFeed(events);
  }
