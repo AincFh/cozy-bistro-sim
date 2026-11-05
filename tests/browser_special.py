@@ -33,7 +33,7 @@ with socketserver.TCPServer(('127.0.0.1',0),Handler) as server:
   assert initial['money']==270 and initial['phase']=='planning',initial
   browser.find_element(By.CSS_SELECTOR,'[data-tab="menu"]').click()
   assert "CHEF'S DAILY PICK" in browser.find_element(By.ID,'sheetBody').text
-  assert len(browser.find_elements(By.CSS_SELECTOR,'[data-cmd^="special:"]'))==3
+  assert len(browser.find_elements(By.CSS_SELECTOR,'[data-cmd^="special:"]:not([disabled])'))==3
   browser.save_screenshot(str(PROOF/'01-marketing-planning.png'))
   browser.execute_script("document.querySelector('[data-cmd=\"special:citrus\"]').click()")
   after=browser.execute_script('return window.COZY_BISTRO.getState()')
