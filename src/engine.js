@@ -48,9 +48,23 @@ export function createGame(seed=20261105){
  pantry:{...DEFAULT_PANTRY},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
  elapsed:0,duration:110,scheduled:[],orders:[],idSeq:0,
  today:{served:0,missed:0,revenue:0,tips:0,spent:0},
- lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0};
+ lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0,
+ assistantHired:false,assistantCooldown:0,assistantServed:0,todayAssistantServed:0};
 }
 export function rng(state){state.seed=(Math.imul(state.seed,1664525)+1013904223)>>>0;return state.seed/4294967296;}
+export const ASSISTANT = Object.freeze({name:'小森 · 兼职料理助手',minimumDay:2,wage:98,cooldown:4.5,initialDelay:3.2});
+export function canHireAssistant(state){
+ return state.phase==='planning'&&state.day>=ASSISTANT.minimumDay&&!state.assistantHired&&state.money>=ASSISTANT.wage;
+}
+export function hireAssistant(state){
+ if(state.phase!=='planning')return {ok:false,error:'只能在营业前安排兼职'};
+ if(state.day<ASSISTANT.minimumDay)return {ok:false,error:'第 2 天起开放兼职排班'};
+ if(state.assistantHired)return {ok:false,error:'今天已经安排了兼职助手'};
+ if(state.money<ASSISTANT.wage)return {ok:false,error:'资金不足，无法支付兼职工资'};
+ state.money-=ASSISTANT.wage;state.today.spent+=ASSISTANT.wage;
+ state.assistantHired=true;state.assistantCooldown=ASSISTANT.initialDelay;
+ return {ok:true,wage:ASSISTANT.wage,assistant:ASSISTANT.name};
+}
 export const SUPPORT_ITEMS={tea:3,lemon:3,bread:3,berries:3,lettuce:3,tomato:3};
 export function canClaimSupport(state){
  const noMeals=recipesAvailable(state).every(recipe=>!ingredientAvailable(state,recipe));
@@ -87,7 +101,7 @@ export function startDay(state){
  }
  state.scheduled.sort((a,b)=>a.arrival-b.arrival);
  state.duration=Math.ceil(state.scheduled.at(-1).arrival+28);
- state.phase='open';return{ok:true,count,duration:state.duration};
+ state.phase='open';state.assistantCooldown=ASSISTANT.initialDelay;return{ok:true,count,duration:state.duration};
 }
 export function cookOrder(state,id){
  if(state.phase!=='open')return{ok:false,error:'餐厅目前未营业'};
@@ -110,7 +124,29 @@ export function serveOrder(state,id){
  state.money+=gain;state.xp+=Math.ceil(recipe.price*.65)+Math.round(quality*12);
  state.rep=clamp(state.rep+(quality>.33?1:-1),0,100);
  state.today.served++;state.today.revenue+=recipe.price;state.today.tips+=tip;state.totalServed++;
+ if(state.assistantAction){state.assistantServed++;state.todayAssistantServed++;}
  state.orders.splice(index,1);return{ok:true,recipe,tip,gain,quality};
+}
+// Each helper action must use the normal cooking/serving rules. No ingredients,
+// money or chef slots are granted by automation.
+function runAssistant(state){
+ if(!state.assistantHired||state.phase!=='open'||state.assistantCooldown>0)return null;
+ const ready=state.orders.find(x=>x.status==='ready');
+ if(ready){
+   state.assistantAction=true;
+   const served=serveOrder(state,ready.id);
+   state.assistantAction=false;
+   if(served.ok){state.assistantCooldown=ASSISTANT.cooldown;
+     return {type:'assistantServe',id:ready.id,recipe:ready.recipe,gain:served.gain};}
+ }
+ const waiting=state.orders.find(x=>x.status==='waiting'&&ingredientAvailable(state,recipeById(x.recipe)));
+ if(waiting){
+   const cooked=cookOrder(state,waiting.id);
+   if(cooked.ok){state.assistantCooldown=ASSISTANT.cooldown;
+     return {type:'assistantCook',id:waiting.id,recipe:waiting.recipe};}
+ }
+ state.assistantCooldown=1;
+ return null;
 }
 function missOrder(state,index){
  const order=state.orders[index];
@@ -120,7 +156,7 @@ function missOrder(state,index){
 }
 export function finishDay(state){
  if(state.phase!=='open'||state.scheduled.length||state.orders.length||state.elapsed<state.duration-10)return false;
- const summary={day:state.day,...state.today,rep:state.rep,balance:state.money};
+ const summary={day:state.day,...state.today,assistantServed:state.todayAssistantServed,assistantWages:state.assistantHired?ASSISTANT.wage:0,rep:state.rep,balance:state.money};
  state.history.push(summary);state.history=state.history.slice(-24);
  state.lastSummary=summary;state.phase='summary';return true;
 }
@@ -137,6 +173,7 @@ export function advance(state,seconds){
     patience:g.patience,maxPatience:g.patience,cookLeft:0,cookTotal:0,mood:g.mood});
    events.push({type:'arrival',id:g.id,recipe:g.recipe,customer:g.customer});
   }
+  if(state.assistantHired){state.assistantCooldown=Math.max(0,state.assistantCooldown-dt);const action=runAssistant(state);if(action)events.push(action);}
   for(let i=state.orders.length-1;i>=0;i--){
    const o=state.orders[i];o.patience-=dt;
    if(o.patience<=0){const lost=missOrder(state,i);events.push({type:'missed',id:lost.id,recipe:lost.recipe});continue;}
@@ -152,7 +189,7 @@ export function advance(state,seconds){
 export function nextDay(state){
  if(state.phase!=='summary')return false;
  state.day++;state.phase='planning';state.elapsed=0;state.duration=110;state.orders=[];state.scheduled=[];
- state.today={served:0,missed:0,revenue:0,tips:0,spent:0};return true;
+ state.today={served:0,missed:0,revenue:0,tips:0,spent:0};state.assistantHired=false;state.assistantCooldown=0;state.todayAssistantServed=0;return true;
 }
 export function achievements(state){
  return [
@@ -162,7 +199,8 @@ export function achievements(state){
   {id:'five',name:'五日主厨',note:'经营满五天',earned:state.day>=5},
   {id:'tenDays',name:'十日老店',note:'经营满十天',earned:state.day>=10},
   {id:'reputation',name:'五星好评',note:'口碑达到 95 分',earned:state.rep>=95},
-  {id:'rich',name:'金色收银台',note:'持有 2000 金币',earned:state.money>=2000}
+  {id:'rich',name:'金色收银台',note:'持有 2000 金币',earned:state.money>=2000},
+  {id:'partnership',name:'街角的默契',note:'兼职助手累计协助完成 20 次上菜',earned:(state.assistantServed||0)>=20}
  ];
 }
 export function serialize(state){return JSON.stringify(state);}
@@ -174,6 +212,8 @@ export function restore(raw){
   for(const k of ['day','money','xp','totalServed','totalMissed','idSeq'])d[k]=integer(val[k]??d[k],k==='day'?1:0,k==='day'?1000:1e9);
   d.seed=integer(val.seed??20261105,0,4294967295)>>>0;d.rep=integer(val.rep??65,0,100);
   d.lastAidDay=integer(val.lastAidDay??0,0,1000);
+  d.assistantHired=val.assistantHired===true;d.assistantCooldown=clamp(val.assistantCooldown??0,0,ASSISTANT.cooldown);
+  d.assistantServed=integer(val.assistantServed??0,0,1e9);d.todayAssistantServed=integer(val.todayAssistantServed??0,0,1e9);d.assistantAction=false;
   d.phase=['planning','open','summary'].includes(val.phase)?val.phase:'planning';
   for(const k of Object.keys(d.pantry))d.pantry[k]=integer(val.pantry?.[k]??d.pantry[k],0,1e7);
   for(const u of UPGRADES)d.upgrades[u.id]=integer(val.upgrades?.[u.id]??0,0,u.max);
@@ -190,7 +230,7 @@ export function restore(raw){
   const today=val.today||{};for(const k of Object.keys(d.today))d.today[k]=integer(today[k]??0,0,1e9);
   d.history=Array.isArray(val.history)?val.history.filter(x=>x&&Number.isInteger(x.day)).slice(-24).map(h=>({
     day:integer(h.day,1,1000),served:integer(h.served),missed:integer(h.missed),revenue:integer(h.revenue),
-    tips:integer(h.tips),spent:integer(h.spent),rep:integer(h.rep,0,100),balance:integer(h.balance)
+    tips:integer(h.tips),spent:integer(h.spent),assistantServed:integer(h.assistantServed??0),assistantWages:integer(h.assistantWages??0),rep:integer(h.rep,0,100),balance:integer(h.balance)
   })):[];
   d.lastSummary=d.phase==='summary'?d.history.at(-1)||null:null;
   d.sound=val.sound!==false;d.gameSpeed=[1,2].includes(val.gameSpeed)?val.gameSpeed:1;
