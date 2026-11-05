@@ -1,0 +1,14 @@
+{
+  "name": "cozy-bistro-sim",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --check src/engine.js && node --check src/app.js && node --check src/scene.js",
+    "start": "npx --yes http-server . -p 5173 -c-1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
