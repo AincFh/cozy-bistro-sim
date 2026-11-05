@@ -49,6 +49,15 @@ jobs:
           name: cozy-bistro-plating-chrome
           path: test-artifacts/plating/
           if-no-files-found: ignore
+      - name: Verify daily menu promotion strategy with real Chrome
+        run: python tests/browser_special.py
+      - name: Preserve real marketing and pricing screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cozy-bistro-daily-special-chrome
+          path: test-artifacts/specials/
+          if-no-files-found: ignore
       - name: Preserve catering test screenshots
         if: always()
         uses: actions/upload-artifact@v4
