@@ -55,3 +55,13 @@
 .regular-meter>span{display:block;height:100%;background:linear-gradient(90deg,#9dcd9a,#dbdfab)}
 @media(max-width:650px){.regulars-grid{grid-template-columns:1fr;gap:9px}.regular-card{padding:13px}}
 @media(prefers-reduced-motion:reduce){.regular-meter>span{transition:none}}
+
+/* Neighborhood calendar: compact editorial information, no extra modal layer. */
+.community-event{padding:20px 23px;margin-bottom:19px;border-radius:14px;background:linear-gradient(115deg,#33534a,#223c3b 77%);border:1px solid #d4bd8366;box-shadow:inset 0 1px #ffffff18}
+.community-event>span{font-size:10px;letter-spacing:.17em;color:#d9c18c;font-weight:800}
+.community-event h3{font-size:clamp(20px,3vw,28px);margin:9px 0;color:#f3e4c8;letter-spacing:.03em}
+.community-event p,.community-event small{display:block;font-size:12px;line-height:1.9;color:#d3e1d6}
+.event-pills{display:flex;flex-wrap:wrap;gap:7px;margin:11px 0}
+.event-pills b{padding:6px 9px;border:1px solid #c4d8c255;border-radius:7px;background:#ffffff0a;font-size:11px;color:#f1e6c9}
+.community-event.quiet{background:#294640a8;border-color:#bccbb23d}
+@media(max-width:580px){.community-event{padding:15px}.community-event h3{font-size:21px}.event-pills b{font-size:10px}}

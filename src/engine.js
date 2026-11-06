@@ -72,6 +72,17 @@ function recordRegularOutcome(state,name,served){
  return tier;
 }
 export const DAILY_FEATURE=Object.freeze({fee:38,weight:3,markup:.18});
+/** Predictable weekly street events: no virtual-money rewards without real orders. */
+export const NEIGHBORHOOD_CALENDAR=Object.freeze([
+ {weekday:3,id:'market',name:'街区小集市',dishes:['citrus','toast','salad'],demand:2.3,guests:2,patience:-3,description:'下午的集市带来更多散客，清爽饮品与轻食需求上升。'},
+ {weekday:5,id:'coffee',name:'街角咖啡节',dishes:['citrus','latte'],demand:2.8,guests:3,patience:-5,description:'咖啡爱好者聚集，饮品更受欢迎；高峰时段耐心更少。'},
+ {weekday:7,id:'family',name:'邻里家庭日',dishes:['toast','brunch','pavlova'],demand:2.5,guests:3,patience:7,description:'家庭客人更偏爱早餐与甜品，等待时间更宽裕。'}
+]);
+export function neighborhoodEvent(day){
+ if(!Number.isInteger(day)||day<1)return null;
+ const weekday=(day-1)%7+1;
+ return NEIGHBORHOOD_CALENDAR.find(e=>e.weekday===weekday)||null;
+}
 export const DEFAULT_PANTRY={tea:7,lemon:7,bread:6,berries:6,lettuce:7,tomato:9,coffee:2,milk:2,pasta:0,cheese:0,rice:0,mushroom:0,cream:0,eggs:0};
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,Number.isFinite(n)?n:min));
 const integer=(n,min=0,max=1000000)=>Math.round(clamp(Number(n),min,max));
@@ -274,22 +285,31 @@ export function featuredDemandShare(state){
  return DAILY_FEATURE.weight/(available.length-1+DAILY_FEATURE.weight);
 }
 function pickWalkInDish(state,available){
- if(!state.dailySpecial)return available[Math.floor(rng(state)*available.length)];
- const pool=available.filter(x=>x.id!==state.dailySpecial);
- const choice=rng(state)*(DAILY_FEATURE.weight+pool.length);
- return choice<DAILY_FEATURE.weight?recipeById(state.dailySpecial):
-  pool[Math.min(pool.length-1,Math.floor(choice-DAILY_FEATURE.weight))];
+ const event=neighborhoodEvent(state.day);
+ if(!event){
+  if(!state.dailySpecial)return available[Math.floor(rng(state)*available.length)];
+  const pool=available.filter(x=>x.id!==state.dailySpecial);
+  const choice=rng(state)*(DAILY_FEATURE.weight+pool.length);
+  return choice<DAILY_FEATURE.weight?recipeById(state.dailySpecial):
+   pool[Math.min(pool.length-1,Math.floor(choice-DAILY_FEATURE.weight))];
+ }
+ // Festival and paid daily-special demand multiply rather than replacing each other.
+ const weights=available.map(dish=>(dish.id===state.dailySpecial?DAILY_FEATURE.weight:1)*(event.dishes.includes(dish.id)?event.demand:1));
+ const total=weights.reduce((sum,w)=>sum+w,0);
+ let roll=rng(state)*total;
+ for(let i=0;i<available.length;i++){roll-=weights[i];if(roll<0)return available[i]}
+ return available.at(-1);
 }
 export function startDay(state){
  if(state.phase!=='planning')return{ok:false,error:'请先完成当前营业日'};
- const available=recipesAvailable(state),count=7+Math.min(5,Math.floor(state.day/2))+(state.upgrades.marketing||0)*2;
+ const available=recipesAvailable(state),event=neighborhoodEvent(state.day),count=7+Math.min(5,Math.floor(state.day/2))+(state.upgrades.marketing||0)*2+(event?.guests||0);
  if(state.dailySpecial)state.specialsLaunched=(state.specialsLaunched||0)+1;
  state.orders=[];state.scheduled=[];state.elapsed=0;state.duration=0;
  for(let i=0;i<count;i++){
   const recipe=pickWalkInDish(state,available);
   const customer=pickGuest(state,rng(state));
   const arrival=3+i*8.7+rng(state)*2.3;
-  const patience=34+rng(state)*14+(state.upgrades.ambience||0)*8+regularLevel(state,customer)*REGULARS.patiencePerTier;
+  const patience=34+rng(state)*14+(state.upgrades.ambience||0)*8+regularLevel(state,customer)*REGULARS.patiencePerTier+(event?.patience||0);
   state.scheduled.push({id:++state.idSeq,recipe:recipe.id,customer,arrival:+arrival.toFixed(2),patience:+patience.toFixed(1),mood:Math.floor(rng(state)*5)});
  }
  if(state.contract?.status==='accepted'&&state.contract.day===state.day){
@@ -399,7 +419,7 @@ function missOrder(state,index){
 export function finishDay(state){
  if(state.phase!=='open'||state.scheduled.length||state.orders.length||state.elapsed<state.duration-10)return false;
  if(state.contract?.status==='active')failContract(state);
- const summary={day:state.day,...state.today,assistantServed:state.todayAssistantServed,
+ const summary={day:state.day,neighborhoodEvent:neighborhoodEvent(state.day)?.id||null,...state.today,assistantServed:state.todayAssistantServed,
   assistantWages:state.assistantHired?(state.assistantShiftWage||ASSISTANT.wage):0,
    staffTraining:state.today.staffTraining||0,assistantLevel:assistantLevel(state),
   contractStatus:state.contract?.status||null,contractRecipe:state.contract?.recipe||null,
