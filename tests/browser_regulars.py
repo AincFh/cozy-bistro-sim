@@ -49,7 +49,12 @@ with socketserver.TCPServer(('127.0.0.1',0),Handler) as server:
   assert first['id'] and first['served']==3 and first['status']=='waiting',first
   assert browser.find_elements(By.CSS_SELECTOR,'[data-order="%s"][data-action="cook"]'%first['id']),first
   browser.save_screenshot(str(PROOF/'01-regular-guest-order.png'))
-  browser.find_element(By.CSS_SELECTOR,'[data-order="%s"][data-action="cook"]'%first['id']).click()
+  # The same order card must remain mounted when only a progress timer advances.
+  # This catches accidental wholesale DOM replacement and stale Selenium buttons.
+  pending=browser.find_element(By.CSS_SELECTOR,'[data-order="%s"][data-action="cook"]'%first['id'])
+  browser.execute_script('window.COZY_BISTRO.test.step(.2)')
+  assert pending.is_displayed() and pending.is_enabled(), 'order button was unexpectedly replaced'
+  pending.click()
   cooked=browser.execute_script("""return (()=>{const s=window.COZY_BISTRO.test.getRaw(),o=s.orders.find(o=>o.id===%s);
     return {status:o?.status,cookLeft:o?.cookLeft,bonus:s.today.regularBonus};})()"""%first['id'])
   assert cooked['status']=='cooking' and cooked['bonus']==0,cooked
