@@ -1,6 +1,6 @@
 import {
  SAVE_VERSION,INGREDIENTS,MENU,PACKS,UPGRADES,createGame,restore,serialize,recipesAvailable,recipeById,ingredientAvailable,slots,
- levelOf,upgradePrice,buyPackage,buyPlannedRestock,planRestock,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract,DAILY_FEATURE,chooseDailySpecial,salePrice,featuredDemandShare,STAFF_CAREER,assistantLevel,assistantCooldownFor,assistantWage,assistantTrainingPrice,canTrainAssistant,trainAssistant,regularLevel,regularOverview,REGULAR_TIERS
+ levelOf,upgradePrice,buyPackage,buyPlannedRestock,planRestock,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract,DAILY_FEATURE,chooseDailySpecial,salePrice,featuredDemandShare,STAFF_CAREER,assistantLevel,assistantCooldownFor,assistantWage,assistantTrainingPrice,canTrainAssistant,trainAssistant,regularLevel,regularOverview,REGULAR_TIERS,neighborhoodEvent,NEIGHBORHOOD_CALENDAR
 } from './engine.js';
 import {initializeRoom,updateRoom} from './scene.js';
 const $=id=>document.getElementById(id),STORAGE='cozy-bistro-save-v1';
@@ -106,6 +106,10 @@ function render(){
   setText('objectivePercent','100%');$('dayBar').style.width='100%';
   setText('sceneState',state.contract?.status==='completed'?'社区订餐已按时交付 · 收到额外奖金':state.contract?.status==='failed'?'社区订餐未完成 · 押金已损失':'温暖灯光留到明天，今天辛苦了');
  }
+ if(state.phase!=='summary'){
+  const event=neighborhoodEvent(state.day);
+  if(event)setText('sectionDesc',$('sectionDesc').textContent+' · 今日街区活动「'+event.name+'」：'+event.description);
+ }
  updateOrderHTML();updateRoom($('room'),state);
 }
 
@@ -179,11 +183,14 @@ function card(title,eyebrow,description,icon,meta,actionLabel,action,disabled=fa
 }
 function menuContents(){
  const available=recipesAvailable(state),featured=state.dailySpecial&&recipeById(state.dailySpecial);
+ const event=neighborhoodEvent(state.day);
+ const eventPanel=event?"<section class='community-event' aria-label='今日街区活动'><span>NEIGHBORHOOD CALENDAR · WEEK "+Math.ceil(state.day/7)+"</span><h3>"+safe(event.name)+"</h3><p>"+safe(event.description)+"</p><div class='event-pills'><b>额外散客 +"+event.guests+"</b><b>顾客耐心 "+(event.patience>=0?'+':'')+event.patience+"s</b><b>主题菜点单权重 ×"+event.demand+"</b></div><small>主题料理："+event.dishes.filter(id=>available.some(d=>d.id===id)).map(id=>safe(recipeById(id).name)).join(' · ')+"。需真实消耗食材、按时上菜才能获得收入。</small></section>":
+ "<section class='community-event quiet'><span>NEIGHBORHOOD CALENDAR</span><h3>普通营业日</h3><p>街区活动每七天循环：第 3 天小集市、第 5 天咖啡节、第 7 天家庭日。请提前规划菜单与采购。</p></section>";
  const share=featured?Math.round(featuredDemandShare(state)*100):0;
  const summary=featured?
   "<div class='feature-highlight'><span class='subline'>CHEF'S DAILY PICK / 今日主推</span><h3>"+safe(featured.name)+"</h3><p>散客预计约 "+share+"% 会点这道菜；普通售价 ◈ "+featured.price+" → 主推售价 ◈ "+salePrice(state,featured)+"。总客流人数不变，社区订餐依照原合同价格结算。</p><strong>营销费用 ◈ "+DAILY_FEATURE.fee+" 已支付 · 今日服务 "+(state.today.specialServed||0)+" 份 · 售价溢价 ◈ "+(state.today.specialBonus||0)+"</strong></div>":
   "<div class='feature-highlight'><span class='subline'>CHEF'S DAILY PICK / 今日主推</span><h3>选择今天的主推菜</h3><p>营销成本 ◈ "+DAILY_FEATURE.fee+"，只支付一次；选定菜品的散客点单权重为普通菜的 "+DAILY_FEATURE.weight+" 倍，售价提高约 18%。并不会增加总客流，因此最好结合食材库存判断。</p></div>";
- return summary+"<div class='sheet-stats'><div><strong>"+available.length+" / "+MENU.length+"</strong><small>已解锁菜谱</small></div><div><strong>LV "+levelOf(state)+"</strong><small>主厨等级</small></div><div><strong>"+(state.specialServed||0)+"</strong><small>累计主推销量</small></div></div><div class='sheet-grid'>"+MENU.map(x=>{
+ return eventPanel+summary+"<div class='sheet-stats'><div><strong>"+available.length+" / "+MENU.length+"</strong><small>已解锁菜谱</small></div><div><strong>LV "+levelOf(state)+"</strong><small>主厨等级</small></div><div><strong>"+(state.specialServed||0)+"</strong><small>累计主推销量</small></div></div><div class='sheet-grid'>"+MENU.map(x=>{
   const unlock=x.day<=state.day,selected=state.dailySpecial===x.id;
   const parts=Object.entries(x.recipe).map(([k,v])=>INGREDIENTS[k].name+' ×'+v).join(' · ');
   const availableServings=Math.min(99,...Object.entries(x.recipe).map(([k,n])=>Math.floor((state.pantry[k]||0)/n)));
@@ -274,6 +281,8 @@ function journalContents(){
   html+="<h3 class='sheet-section-title'>最近的每日收入</h3><div class='ledger-bars'>"+h.map(x=>"<div title='第"+x.day+"天：收入 "+(x.revenue+x.tips)+"' style='height:"+Math.max(2,100*(x.revenue+x.tips)/max)+"%'><span>"+x.day+"</span></div>").join('')+"</div>";
   html+="<h3 class='sheet-section-title' style='margin-top:34px'>经营流水</h3>"+[...state.history].reverse().map(x=>"<div class='ledger-row'><strong>DAY "+String(x.day).padStart(2,'0')+"</strong><span>完成 "+x.served+" 单　·　流失 "+x.missed+" 单</span><em>收入 ◈ "+currency(x.revenue+x.tips)+" / 支出 ◈ "+currency(x.spent)+"</em></div>").join('');
  }else html+="<p class='muted'>营业日结束后，这里会自动出现每日账本和收入走势图。</p>";
+ html+="<h3 class='sheet-section-title'>街区活动日历</h3><p class='muted'>活动按七天循环：第 3 天街区小集市（多 2 位客人）、第 5 天咖啡节（多 3 位客人）、第 7 天家庭日（多 3 位客人）。活动只改变实际散客需求和耐心，不直接派发金币。</p>";
+ html+="<div class='sheet-grid'>"+NEIGHBORHOOD_CALENDAR.map(e=>card(e.name,"WEEKDAY "+e.weekday,e.description,"◈","客流 +"+e.guests+" · 耐心 "+(e.patience>=0?"+":"")+e.patience+"s",null)).join("")+"</div>";
  html+="<h3 class='sheet-section-title'>社区委托记录</h3><p class='muted'>累计完成 "+(state.contractsWon||0)+" 份，未完成 "+(state.contractsLost||0)+" 份。委托奖励记入当天账本，押金在全数交付后退还。</p>";
  html+="<h3 class='sheet-section-title'>今日主推与营销</h3><p class='muted'>累计营销活动 "+(state.specialsLaunched||0)+" 次 · 主推菜售出 "+(state.specialServed||0)+" 份 · 今日额外售价收入 ◈ "+currency(state.today.specialBonus||0)+"。</p>";
  html+="<h3 class='sheet-section-title'>摆盘手艺记录</h3><p class='muted'>累计摆盘 "+(state.platingAttempts||0)+" 次 · 完美摆盘 "+(state.platingPerfect||0)+" 次 · 最佳连续完美 "+(state.platingBestStreak||0)+" 次 · 今日额外奖励 ◈ "+currency(state.today.platingBonus||0)+"。</p>";
@@ -311,7 +320,8 @@ const sheets={
   card('05 · 邻里团体订餐','CATERING','营业前可签约一份付押金的团体订餐，多份料理与散客共用厨房和食材，必须全部交付才能返还押金与领取奖金。','▣','通过专属社区订餐菜单接单',null)+
   card('06 · 及时上菜','SERVE','料理完成后可以普通上菜，也可挑战五秒计时的精致摆盘。越接近目标区域越有机会获得额外小费、经验与口碑。','♥','提高口碑可提高评级',null)+
   card('07 · 每日结算','DAY REPORT','当天全部顾客处理完毕后自动结算。查看账本，选择进入下一天。','◈','记录最近 24 天',null)+
-  card('08 · 保存进度','LOCAL SAVE','浏览器自动存档，也能手动导出 JSON 备份。此版本无需登录，也没有真实支付。','✦','当前版本 v1',null)+"</div>"]
+  card('08 · 保存进度','LOCAL SAVE','浏览器自动存档，也能手动导出 JSON 备份。此版本无需登录，也没有真实支付。','✦','当前版本 v1',null)+
+  card('09 · 街区活动','CALENDAR','每七天循环小集市、咖啡节和家庭日。活动改变客流、订单偏好及耐心；没有无条件奖励。请提前备货。','◈','第 3 / 5 / 7 天',null)+"</div>"]
 };
 function openSheet(name){
  if(name==='service'){closeSheet();return}
