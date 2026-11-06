@@ -1,6 +1,6 @@
 import {
  SAVE_VERSION,INGREDIENTS,MENU,PACKS,UPGRADES,createGame,restore,serialize,recipesAvailable,recipeById,ingredientAvailable,slots,
- levelOf,upgradePrice,buyPackage,buyPlannedRestock,planRestock,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract,DAILY_FEATURE,chooseDailySpecial,salePrice,featuredDemandShare
+ levelOf,upgradePrice,buyPackage,buyPlannedRestock,planRestock,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract,DAILY_FEATURE,chooseDailySpecial,salePrice,featuredDemandShare,STAFF_CAREER,assistantLevel,assistantCooldownFor,assistantWage,assistantTrainingPrice,canTrainAssistant,trainAssistant
 } from './engine.js';
 import {initializeRoom,updateRoom} from './scene.js';
 const $=id=>document.getElementById(id),STORAGE='cozy-bistro-save-v1';
@@ -219,14 +219,34 @@ function upgradesContents(){
  }).join('')+"</div>";
 }
 function staffContents(){
- const hired=state.assistantHired;
- const allowed=canHireAssistant(state);
- const msg=hired?'今天已经安排兼职。助手会优先为做好料理的客人上菜，其次使用空闲的厨房位置继续制作。':state.day<ASSISTANT.minimumDay?'第 2 天起开放兼职排班。':state.phase!=='planning'?'目前正在营业。下一个营业日前才可排班。':'按天聘用，无长期合同。工资只在确定聘用时扣除，未聘用不会扣费。';
- return "<div class='sheet-stats'><div><strong>"+(hired?'已到岗':'未雇佣')+"</strong><small>今日助理状态</small></div><div><strong>"+(state.todayAssistantServed||0)+"</strong><small>今日兼职上菜</small></div><div><strong>"+(state.assistantServed||0)+"</strong><small>累计协助上菜</small></div><div><strong>◈ "+ASSISTANT.wage+"</strong><small>每日固定工资</small></div></div>"+
- "<p class='muted'>"+msg+"</p><div class='sheet-grid'>"+
- card(ASSISTANT.name,'PART-TIME TEAM MEMBER','会遵守制作台容量、库存与客人耐心规则。每次操作之间需要 '+ASSISTANT.cooldown+' 秒，能节省手动操作但不能替代经营规划。','☘',hired?'今日已排班':'每日工资 ◈ '+ASSISTANT.wage,hired?'已到岗':'安排今日兼职','hire-assistant',!allowed) +
- card('排班与收支','BUSINESS BALANCE','助手工资被记录为当天支出。刚开业时可能不划算；等菜品、客流量和制作台升级后，才更容易覆盖人力成本。','◷','今日已支出 ◈ '+currency(state.today.spent),null) +
- "</div>";
+ const hired=state.assistantHired,level=assistantLevel(state),xp=state.assistantXp||0;
+ const nextXp=STAFF_CAREER.levels[level]??STAFF_CAREER.maxXp;
+ const canHire=canHireAssistant(state),canTrain=canTrainAssistant(state);
+ const wage=assistantWage(state),training=assistantTrainingPrice(state);
+ const status=hired?'今天已聘用。助手会优先上菜，再使用空余灶台制作料理。技能提高后每次工作间隔更短。':
+  state.day<ASSISTANT.minimumDay?'第 2 天开始开放雇佣与培训。':
+  state.phase!=='planning'?'正在营业中。下个营业日才能雇佣和培训。':
+  '雇佣按天结算；技能会在帮助制作与上菜成功后增加，也能营业前付费培训。高级助手工资略高。';
+ const progress=level>=STAFF_CAREER.levels.length?'已满级':xp+' / '+nextXp+' XP · 下级还差 '+Math.max(0,nextXp-xp)+' XP';
+ return "<div class='sheet-stats'><div><strong>"+(hired?'已到岗':'未雇佣')+"</strong><small>今日班次</small></div>"+
+  "<div><strong>LV "+level+"</strong><small>助手技能等级</small></div>"+
+  "<div><strong>"+(state.todayAssistantServed||0)+"</strong><small>今日助手上菜</small></div>"+
+  "<div><strong>"+(state.assistantServed||0)+"</strong><small>累计协助上菜</small></div></div>"+
+  "<div class='sheet-card' style='margin:16px 0 20px'><div class='subline'>STAFF CAREER · 员工技能成长</div>"+
+  "<h3 style='margin:8px 0'>"+ASSISTANT.name+"</h3><p>成长 "+progress+" · 实际工作间隔 "+assistantCooldownFor(state).toFixed(2)+
+  " 秒 · 已培训 "+(state.assistantTrainingSessions||0)+" 次</p>"+
+  "<div style='height:7px;border-radius:8px;background:#132d30;overflow:hidden'><div style='width:"+Math.min(100,Math.round(xp/STAFF_CAREER.maxXp*100))+
+  "%;height:100%;background:#d9e7a4'></div></div></div>"+
+  "<p class='muted'>"+status+"</p><div class='sheet-grid'>"+
+  card(ASSISTANT.name,'PART-TIME SHIFT','必须支付实际工资才能排班。只在真实料理制作或上菜成功后获得 1 点技能经验。','☘',
+   hired?'今日已排班 · 工资 ◈ '+(state.assistantShiftWage||wage):'今日工资 ◈ '+wage,
+   hired?'今日已排班':'安排今日兼职','hire-assistant',!canHire)+
+  card('专项培训','CAREER DEVELOPMENT','营业前付费学习获得 '+STAFF_CAREER.trainingXp+' XP；每个经营日最多一次。更高级的助手操作更快，但日薪也会增加。','✧',
+   level>=STAFF_CAREER.levels.length?'技能满级':state.assistantTrainedDay===state.day?'今日已培训':'培训费 ◈ '+training,
+   '安排一次培训','train-assistant',!canTrain)+
+  card('班次与收支','BUSINESS BALANCE','固定工资及培训费用都计入当日经营支出。助手不创造食材和制作台，仍遵循客人耐心与库存限制。','◷',
+   '今日已支出 ◈ '+currency(state.today.spent),null)+
+  "</div>";
 }
 function contractsContents(){
  const c=state.contract;
@@ -270,7 +290,7 @@ const sheets={
  menu:['THE LITTLE MENU','今天的餐厅菜单','从三道基础料理开始，随着营业天数逐步解锁新食谱。',menuContents],
  stock:['FRESH FROM THE MARKET','采购与备货','备足客人最爱的食材，让厨房可以持续制作。',stockContents],
  upgrades:['THE DREAM GROWS','餐厅升级','投入合理预算，提升制作速度、客人耐心和餐馆经营效率。',upgradesContents],
- staff:['THE LITTLE TEAM','兼职与排班','安排一个真正参与制作和上菜的兼职助手。',staffContents],
+ staff:['THE LITTLE TEAM','兼职与排班','安排兼职、支付工资并通过实际工作或培训提升助手技能。',staffContents],
  contracts:['NEIGHBORHOOD CATERING','社区订餐委托','按时完成团体订餐，赢取额外收益并建立街区口碑。',contractsContents],
  journal:['THE BUSINESS LEDGER','经营账本','收入、口碑、成就与每日财务都在这里。',journalContents],
  backup:['SAVE & SETTINGS','存档与设置','导出备份、更改音效，以及管理本地进度。',backupContents],
@@ -336,6 +356,7 @@ $('sheetBody').addEventListener('click',e=>{
  }
  if(cmd.startsWith('contract:')){const result=acceptContract(state,cmd.slice(9));if(result.ok){save();toast('已接受 '+result.contract.customer+' 的社区订餐，押金 ◈ '+result.contract.deposit+' 已锁定','success');openSheet('contracts');render();}else toast(result.error,'miss');return;}
  if(cmd==='hire-assistant'){const result=hireAssistant(state);if(result.ok){save();toast('已经安排 '+result.assistant+' 今日到岗，支出 ◈ '+result.wage,'success');openSheet('staff');render();}else toast(result.error,'miss');return;}
+  if(cmd==='train-assistant'){const result=trainAssistant(state);if(result.ok){save();toast('培训完成 · 助手 LV '+result.level+' · 支出 ◈ '+result.cost,'success');openSheet('staff');render();}else toast(result.error,'miss');return;}
  if(cmd==='aid'){const result=claimSupport(state);if(result.ok){save();toast('已收到邻里提供的应急食材。','success');openSheet('stock');render();}else toast(result.error,'miss');return;}
  if(cmd==='export'){
   const file=new Blob([JSON.stringify({type:'cozy-bistro-save',version:SAVE_VERSION,progress:state},null,2)],{type:'application/json'});

@@ -48,9 +48,10 @@ export function createGame(seed=20261105){
  return {version:SAVE_VERSION,seed:integer(seed,0,4294967295)>>>0,day:1,phase:'planning',money:270,rep:65,xp:0,totalServed:0,totalMissed:0,
  pantry:{...DEFAULT_PANTRY},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
  elapsed:0,duration:110,scheduled:[],orders:[],idSeq:0,
- today:{served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0},
+ today:{served:0,missed:0,revenue:0,tips:0,spent:0,staffTraining:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0},
  lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0,platingPerfect:0,platingGood:0,platingAttempts:0,platingBestStreak:0,platingStreak:0,
  assistantHired:false,assistantCooldown:0,assistantServed:0,todayAssistantServed:0,
+  assistantXp:0,assistantTrainedDay:0,assistantTrainingSessions:0,assistantTrainingTotal:0,assistantShiftWage:0,
  contract:null,contractsWon:0,contractsLost:0,dailySpecial:null,specialsLaunched:0,specialServed:0};
 }
 export function rng(state){state.seed=(Math.imul(state.seed,1664525)+1013904223)>>>0;return state.seed/4294967296;}
@@ -89,17 +90,48 @@ function failContract(state){
  state.rep=clamp(state.rep-4,0,100);return true;
 }
 export const ASSISTANT = Object.freeze({name:'小森 · 兼职料理助手',minimumDay:2,wage:98,cooldown:4.5,initialDelay:3.2});
+export const STAFF_CAREER=Object.freeze({levels:[0,5,16,34,60],trainingXp:8,maxXp:60,trainingBase:140,trainingStep:70,wageStep:12,cooldownStep:.38});
+export function assistantLevel(state){
+ const xp=Number.isFinite(state.assistantXp)?Math.min(STAFF_CAREER.maxXp,Math.max(0,state.assistantXp)):0;
+ return STAFF_CAREER.levels.reduce((level,threshold,i)=>xp>=threshold?i+1:level,1);
+}
+export function assistantCooldownFor(state){return +(ASSISTANT.cooldown-(assistantLevel(state)-1)*STAFF_CAREER.cooldownStep).toFixed(2);}
+export function assistantWage(state){return ASSISTANT.wage+(assistantLevel(state)-1)*STAFF_CAREER.wageStep;}
+export function assistantTrainingPrice(state){return STAFF_CAREER.trainingBase+(assistantLevel(state)-1)*STAFF_CAREER.trainingStep;}
+export function canTrainAssistant(state){
+ return state.phase==='planning'&&state.day>=ASSISTANT.minimumDay&&state.assistantTrainedDay!==state.day&&
+  assistantLevel(state)<STAFF_CAREER.levels.length&&state.money>=assistantTrainingPrice(state);
+}
+export function trainAssistant(state){
+ if(state.phase!=='planning')return{ok:false,error:'必须在营业前进行培训'};
+ if(state.day<ASSISTANT.minimumDay)return{ok:false,error:'第 2 天起开放员工培训'};
+ if(state.assistantTrainedDay===state.day)return{ok:false,error:'每个营业日只能培训一次'};
+ if(assistantLevel(state)>=STAFF_CAREER.levels.length)return{ok:false,error:'兼职助手已达到最高技能等级'};
+ const price=assistantTrainingPrice(state);
+ if(state.money<price)return{ok:false,error:'资金不足，无法支付培训费用'};
+ state.money-=price;state.today.spent+=price;state.today.staffTraining=(state.today.staffTraining||0)+price;
+ state.assistantXp=Math.min(STAFF_CAREER.maxXp,(state.assistantXp||0)+STAFF_CAREER.trainingXp);
+ state.assistantTrainedDay=state.day;state.assistantTrainingSessions=(state.assistantTrainingSessions||0)+1;
+ state.assistantTrainingTotal=(state.assistantTrainingTotal||0)+price;
+ return{ok:true,cost:price,level:assistantLevel(state),xp:state.assistantXp};
+}
+function earnAssistantXp(state){
+ // No ingredients/serve action succeeded => no staff XP.
+ state.assistantXp=Math.min(STAFF_CAREER.maxXp,(state.assistantXp||0)+1);
+}
 export function canHireAssistant(state){
- return state.phase==='planning'&&state.day>=ASSISTANT.minimumDay&&!state.assistantHired&&state.money>=ASSISTANT.wage;
+ return state.phase==='planning'&&state.day>=ASSISTANT.minimumDay&&!state.assistantHired&&state.money>=assistantWage(state);
 }
 export function hireAssistant(state){
  if(state.phase!=='planning')return {ok:false,error:'只能在营业前安排兼职'};
  if(state.day<ASSISTANT.minimumDay)return {ok:false,error:'第 2 天起开放兼职排班'};
  if(state.assistantHired)return {ok:false,error:'今天已经安排了兼职助手'};
- if(state.money<ASSISTANT.wage)return {ok:false,error:'资金不足，无法支付兼职工资'};
- state.money-=ASSISTANT.wage;state.today.spent+=ASSISTANT.wage;
- state.assistantHired=true;state.assistantCooldown=ASSISTANT.initialDelay;
- return {ok:true,wage:ASSISTANT.wage,assistant:ASSISTANT.name};
+ const wage=assistantWage(state);
+ if(state.money<wage)return {ok:false,error:'资金不足，无法支付兼职工资'};
+ state.money-=wage;state.today.spent+=wage;
+ state.assistantHired=true;state.assistantShiftWage=wage;
+ state.assistantCooldown=Math.max(1,ASSISTANT.initialDelay-(assistantLevel(state)-1)*.2);
+ return {ok:true,wage,assistant:ASSISTANT.name,level:assistantLevel(state)};
 }
 export const SUPPORT_ITEMS={tea:3,lemon:3,bread:3,berries:3,lettuce:3,tomato:3};
 export function canClaimSupport(state){
@@ -231,7 +263,7 @@ export function startDay(state){
  }
  state.scheduled.sort((a,b)=>a.arrival-b.arrival);
  state.duration=Math.ceil(state.scheduled.at(-1).arrival+28);
- state.phase='open';state.assistantCooldown=ASSISTANT.initialDelay;
+ state.phase='open';state.assistantCooldown=Math.max(1,ASSISTANT.initialDelay-(assistantLevel(state)-1)*.2);
  return{ok:true,count:count+(state.contract?.status==='active'?state.contract.count:0),duration:state.duration};
 }
 export function cookOrder(state,id){
@@ -302,13 +334,13 @@ function runAssistant(state){
    state.assistantAction=true;
    const served=serveOrder(state,ready.id);
    state.assistantAction=false;
-   if(served.ok){state.assistantCooldown=ASSISTANT.cooldown;
+   if(served.ok){earnAssistantXp(state);state.assistantCooldown=assistantCooldownFor(state);
      return {type:'assistantServe',id:ready.id,recipe:ready.recipe,gain:served.gain};}
  }
  const waiting=state.orders.find(x=>x.status==='waiting'&&ingredientAvailable(state,recipeById(x.recipe)));
  if(waiting){
    const cooked=cookOrder(state,waiting.id);
-   if(cooked.ok){state.assistantCooldown=ASSISTANT.cooldown;
+   if(cooked.ok){earnAssistantXp(state);state.assistantCooldown=assistantCooldownFor(state);
      return {type:'assistantCook',id:waiting.id,recipe:waiting.recipe};}
  }
  state.assistantCooldown=1;
@@ -325,7 +357,8 @@ export function finishDay(state){
  if(state.phase!=='open'||state.scheduled.length||state.orders.length||state.elapsed<state.duration-10)return false;
  if(state.contract?.status==='active')failContract(state);
  const summary={day:state.day,...state.today,assistantServed:state.todayAssistantServed,
-  assistantWages:state.assistantHired?ASSISTANT.wage:0,
+  assistantWages:state.assistantHired?(state.assistantShiftWage||ASSISTANT.wage):0,
+   staffTraining:state.today.staffTraining||0,assistantLevel:assistantLevel(state),
   contractStatus:state.contract?.status||null,contractRecipe:state.contract?.recipe||null,
   contractDelivered:state.contract?.delivered||0,
   contractRequired:state.contract?.count||0,
@@ -365,7 +398,7 @@ export function advance(state,seconds){
 export function nextDay(state){
  if(state.phase!=='summary')return false;
  state.day++;state.phase='planning';state.elapsed=0;state.duration=110;state.orders=[];state.scheduled=[];
- state.today={served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0};state.dailySpecial=null;state.assistantHired=false;state.assistantCooldown=0;state.todayAssistantServed=0;state.contract=null;return true;
+ state.today={served:0,missed:0,revenue:0,tips:0,spent:0,staffTraining:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0};state.dailySpecial=null;state.assistantHired=false;state.assistantCooldown=0;state.assistantShiftWage=0;state.todayAssistantServed=0;state.contract=null;return true;
 }
 export function achievements(state){
  return [
@@ -377,6 +410,8 @@ export function achievements(state){
   {id:'reputation',name:'五星好评',note:'口碑达到 95 分',earned:state.rep>=95},
   {id:'rich',name:'金色收银台',note:'持有 2000 金币',earned:state.money>=2000},
   {id:'partnership',name:'街角的默契',note:'兼职助手累计协助完成 20 次上菜',earned:(state.assistantServed||0)>=20},
+   {id:'trainee',name:'小店培训师',note:'将兼职助手提升至 3 级',earned:assistantLevel(state)>=3},
+   {id:'mentor',name:'金牌伙伴',note:'将兼职助手提升至满级',earned:assistantLevel(state)>=5},
   {id:'neighbor',name:'邻里的信任',note:'按时完成首份社区订餐委托',earned:(state.contractsWon||0)>=1},
   {id:'catering',name:'餐饮承办达人',note:'累计完成 10 份社区订餐委托',earned:(state.contractsWon||0)>=10},
   {id:'plating',name:'摆盘艺术家',note:'完成 5 次完美摆盘',earned:(state.platingPerfect||0)>=5},
@@ -396,6 +431,11 @@ export function restore(raw){
   d.lastAidDay=integer(val.lastAidDay??0,0,1000);
   d.assistantHired=val.assistantHired===true;d.assistantCooldown=clamp(val.assistantCooldown??0,0,ASSISTANT.cooldown);
   d.assistantServed=integer(val.assistantServed??0,0,1e9);d.todayAssistantServed=integer(val.todayAssistantServed??0,0,1e9);d.assistantAction=false;
+   d.assistantXp=integer(val.assistantXp??0,0,STAFF_CAREER.maxXp);
+   d.assistantTrainedDay=integer(val.assistantTrainedDay??0,0,1000);
+   d.assistantTrainingSessions=integer(val.assistantTrainingSessions??0,0,1000);
+   d.assistantTrainingTotal=integer(val.assistantTrainingTotal??0,0,1e9);
+   d.assistantShiftWage=integer(val.assistantShiftWage??(d.assistantHired?ASSISTANT.wage:0),0,1000);
   d.contractsWon=integer(val.contractsWon??0,0,1e6);d.contractsLost=integer(val.contractsLost??0,0,1e6);
   d.specialsLaunched=integer(val.specialsLaunched??0,0,1e6);d.specialServed=integer(val.specialServed??0,0,1e6);
   d.dailySpecial=recipeById(val.dailySpecial)?.day<=d.day?val.dailySpecial:null;
@@ -427,7 +467,8 @@ export function restore(raw){
   d.history=Array.isArray(val.history)?val.history.filter(x=>x&&Number.isInteger(x.day)).slice(-24).map(h=>({
     day:integer(h.day,1,1000),served:integer(h.served),missed:integer(h.missed),revenue:integer(h.revenue),
     tips:integer(h.tips),spent:integer(h.spent),assistantServed:integer(h.assistantServed??0),
-    assistantWages:integer(h.assistantWages??0),contractBonus:integer(h.contractBonus??0),
+    assistantWages:integer(h.assistantWages??0),staffTraining:integer(h.staffTraining??0),
+     assistantLevel:integer(h.assistantLevel??1,1,5),contractBonus:integer(h.contractBonus??0),
     contractStatus:['completed','failed'].includes(h.contractStatus)?h.contractStatus:null,
     contractRecipe:recipeById(h.contractRecipe)?h.contractRecipe:null,
     contractDelivered:integer(h.contractDelivered??0,0,4),contractRequired:integer(h.contractRequired??0,0,4),
