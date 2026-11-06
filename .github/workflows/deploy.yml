@@ -67,6 +67,15 @@ jobs:
           name: cozy-bistro-daily-special-chrome
           path: test-artifacts/specials/
           if-no-files-found: ignore
+      - name: Verify real returning-customer service, loyalty tips, relationship save and mobile Chrome
+        run: python tests/browser_regulars.py
+      - name: Preserve returning-customer acceptance screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cozy-bistro-regulars-chrome
+          path: test-artifacts/regulars/
+          if-no-files-found: ignore
       - name: Preserve catering test screenshots
         if: always()
         uses: actions/upload-artifact@v4

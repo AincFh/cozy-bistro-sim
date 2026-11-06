@@ -41,3 +41,17 @@
 .contract-summary h3{font-size:21px}.contract-numbers{gap:7px}
 .contract-numbers>span{padding:10px;font-size:10px}
 .contract-numbers b{font-size:12px}}
+
+
+/* Loyal patrons — guests remember real meals and disappointing wait times. */
+.regulars-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:16px 0 22px}
+.regular-card{padding:15px 16px;border:1px solid rgba(202,219,192,.32);border-radius:13px;background:linear-gradient(135deg,rgba(26,55,56,.9),rgba(16,41,47,.93));min-width:0}
+.regular-card>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.regular-card strong{font-size:15px;color:#e9eedc}
+.regular-card span{font-size:11px;color:#c3dfa9;font-weight:800;letter-spacing:.1em}
+.regular-card p{font-size:12px;margin:10px 0;color:#a8c4bb}
+.regular-card small{font-size:11px;line-height:1.6;color:#c0d0b4}
+.regular-meter{height:6px;border-radius:12px;overflow:hidden;background:#21454c;margin:10px 0}
+.regular-meter>span{display:block;height:100%;background:linear-gradient(90deg,#9dcd9a,#dbdfab)}
+@media(max-width:650px){.regulars-grid{grid-template-columns:1fr;gap:9px}.regular-card{padding:13px}}
+@media(prefers-reduced-motion:reduce){.regular-meter>span{transition:none}}

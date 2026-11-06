@@ -1,6 +1,6 @@
 import {
  SAVE_VERSION,INGREDIENTS,MENU,PACKS,UPGRADES,createGame,restore,serialize,recipesAvailable,recipeById,ingredientAvailable,slots,
- levelOf,upgradePrice,buyPackage,buyPlannedRestock,planRestock,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract,DAILY_FEATURE,chooseDailySpecial,salePrice,featuredDemandShare,STAFF_CAREER,assistantLevel,assistantCooldownFor,assistantWage,assistantTrainingPrice,canTrainAssistant,trainAssistant
+ levelOf,upgradePrice,buyPackage,buyPlannedRestock,planRestock,buyUpgrade,startDay,cookOrder,serveOrder,advance,nextDay,achievements,finishDay,canClaimSupport,claimSupport,ASSISTANT,canHireAssistant,hireAssistant,contractOffers,acceptContract,DAILY_FEATURE,chooseDailySpecial,salePrice,featuredDemandShare,STAFF_CAREER,assistantLevel,assistantCooldownFor,assistantWage,assistantTrainingPrice,canTrainAssistant,trainAssistant,regularLevel,regularOverview,REGULAR_TIERS
 } from './engine.js';
 import {initializeRoom,updateRoom} from './scene.js';
 const $=id=>document.getElementById(id),STORAGE='cozy-bistro-save-v1';
@@ -55,10 +55,11 @@ function updateOrderHTML(){
   const ready=order.status==='ready',cooking=order.status==='cooking',canCook=!cooking&&!ready&&running<slots(state)&&ingredientAvailable(state,dish);
   const label=ready?'普通上菜':cooking?'制作中…':canCook?'开始制作':running>=slots(state)?'制作台已满':'食材不足';
   const pPercent=cooking?Math.round((1-order.cookLeft/Math.max(.1,order.cookTotal))*100):Math.round(ratio*100);
-  const stateLabel=(order.contract?'团体订餐 · ':'')+(ready?'等待上菜':cooking?'厨师制作中':'等待点餐');
+  const loyalty=order.contract?0:regularLevel(state,order.customer);
+  const stateLabel=(order.contract?'团体订餐 · ':loyalty>0?'熟客 Lv.'+loyalty+' · ':'')+(ready?'等待上菜':cooking?'厨师制作中':'等待点餐');
   const action=ready?'serve':'cook';
   const avatarColor=['#e1ab96','#b9bc98','#9db5a3','#c9b0ca','#e1c295'][order.mood%5];
-  return "<article class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>"+(state.dailySpecial===dish.id&&!order.contract?"今日主推 · ":"")+"◈ "+salePrice(state,dish,order.contract)+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button>"+(ready?"<button class='plating-action' data-order='"+order.id+"' data-action='plate'>精致摆盘</button>":"")+"</div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
+  return "<article class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>"+(loyalty>0?"熟客 Lv."+loyalty+" · ":"")+"订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>"+(state.dailySpecial===dish.id&&!order.contract?"今日主推 · ":"")+"◈ "+salePrice(state,dish,order.contract)+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button>"+(ready?"<button class='plating-action' data-order='"+order.id+"' data-action='plate'>精致摆盘</button>":"")+"</div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
  }).join('');
 }
 function render(){
@@ -169,7 +170,7 @@ $('orderList').addEventListener('click',e=>{
  const id=Number(b.dataset.order),action=b.dataset.action;
  if(action==='plate'){startPlating(id);return}
  const result=action==='cook'?cookOrder(state,id):serveOrder(state,id);
- if(result.ok){toast(result.contractCompleted?'团体订餐完成！额外奖励 ◈ '+result.contractBonus+'，返还押金 ◈ '+result.depositRefund:action==='cook'?'主厨开始制作 '+result.recipe.name:'上菜成功！收到 ◈ '+result.gain+'（含小费 '+result.tip+'）',action==='cook'?'cook':'success');save();}
+ if(result.ok){toast(result.contractCompleted?'团体订餐完成！额外奖励 ◈ '+result.contractBonus+'，返还押金 ◈ '+result.depositRefund:action==='cook'?'主厨开始制作 '+result.recipe.name:'上菜成功！收到 ◈ '+result.gain+'（小费 '+result.tip+(result.regularBonus?' · 熟客额外小费 '+result.regularBonus:'')+'）',action==='cook'?'cook':'success');save();}
  else toast(result.error,'miss');
  render();
 });
@@ -276,6 +277,14 @@ function journalContents(){
  html+="<h3 class='sheet-section-title'>社区委托记录</h3><p class='muted'>累计完成 "+(state.contractsWon||0)+" 份，未完成 "+(state.contractsLost||0)+" 份。委托奖励记入当天账本，押金在全数交付后退还。</p>";
  html+="<h3 class='sheet-section-title'>今日主推与营销</h3><p class='muted'>累计营销活动 "+(state.specialsLaunched||0)+" 次 · 主推菜售出 "+(state.specialServed||0)+" 份 · 今日额外售价收入 ◈ "+currency(state.today.specialBonus||0)+"。</p>";
  html+="<h3 class='sheet-section-title'>摆盘手艺记录</h3><p class='muted'>累计摆盘 "+(state.platingAttempts||0)+" 次 · 完美摆盘 "+(state.platingPerfect||0)+" 次 · 最佳连续完美 "+(state.platingBestStreak||0)+" 次 · 今日额外奖励 ◈ "+currency(state.today.platingBonus||0)+"。</p>";
+ const patrons=regularOverview(state).filter(x=>x.served>0||x.missed>0);
+ const loyal=patrons.filter(x=>x.tier>0);
+ html+="<h3 class='sheet-section-title'>街角熟客名册</h3><div class='sheet-stats'><div><strong>"+patrons.length+" / 16</strong><small>结识过的客人</small></div><div><strong>"+loyal.length+"</strong><small>已建立熟客关系</small></div><div><strong>◈ "+currency(state.today.regularBonus||0)+"</strong><small>今日熟客小费</small></div></div>";
+ html+="<p class='muted'>正常散客成功出餐才会积累 1 次服务印章；等不及离开的客人会扣除 2 点信任。3 / 8 / 18 点净信任可解锁熟客 1 / 2 / 3 级，增加回访频率、耐心和额外小费。团体订餐不计入个人关系。</p>";
+ html+=patrons.length?"<div class='regulars-grid'>"+patrons.slice(0,12).map(x=>{
+   const next=x.next===null?'最高等级':"还差 "+Math.max(0,x.next-x.trust)+" 点净信任升级";
+   return "<article class='regular-card' data-regular-name='"+safe(x.name)+"'><div><strong>"+safe(x.name)+"</strong><span>LV "+x.tier+"</span></div><p>成功接待 "+x.served+" 次 · 等待超时 "+x.missed+" 次</p><div class='regular-meter'><span style='width:"+Math.min(100,Math.round(x.trust/REGULAR_TIERS.at(-1)*100))+"%'></span></div><small>"+next+" · 额外耐心 +"+x.patienceBonus+"s · 小费 +◈ "+x.tipBonus+"</small></article>";
+ }).join('')+"</div>":"<p class='muted'>还没有熟悉的客人。开门经营并真正完成料理，上菜记录会自动加入这里。</p>";
  html+="<h3 class='sheet-section-title'>兼职协助记录</h3><p class='muted'>累计兼职上菜 "+(state.assistantServed||0)+" 单 · 今日兼职上菜 "+(state.todayAssistantServed||0)+" 单。兼职工资计入当日支出，不另扣费。</p>";
  html+="<h3 class='sheet-section-title' style='margin-top:26px'>经营成就</h3><div class='sheet-grid'>"+achievements(state).map(a=>card(a.name,a.earned?'ACHIEVEMENT EARNED':'LOCKED GOAL',a.note,a.earned?'✦':'◇',a.earned?'已达成':'尚未达成',null,false,a.earned?'':'locked-card')).join('')+"</div>";
  return html;
