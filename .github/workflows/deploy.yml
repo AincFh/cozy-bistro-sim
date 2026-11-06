@@ -49,6 +49,15 @@ jobs:
           name: cozy-bistro-plating-chrome
           path: test-artifacts/plating/
           if-no-files-found: ignore
+      - name: Verify real training, staff wages, kitchen progression and mobile save in Chromium
+        run: python tests/browser_staff.py
+      - name: Preserve staff skill-growth and mobile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cozy-bistro-staff-career-chrome
+          path: test-artifacts/staff/
+          if-no-files-found: ignore
       - name: Verify daily menu promotion strategy with real Chrome
         run: python tests/browser_special.py
       - name: Preserve real marketing and pricing screenshots
