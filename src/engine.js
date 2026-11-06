@@ -32,6 +32,45 @@ export const UPGRADES=[
  {id:'tips',name:'贴心服务',emoji:'♥',base:330,max:3,desc:'每级小费率额外 +5%'}
 ];
 export const CUSTOMERS=['小夏','柚子','阿雅','艾米','林先生','木子','桃桃','阿泽','小松','贝拉','若林','浅浅','星野','橘子','苏苏','雨果'];
+/** Regulars are earned from real service and lost from impatient walkouts. */
+export const REGULAR_TIERS=Object.freeze([0,3,8,18]);
+export const REGULARS=Object.freeze({patiencePerTier:4,tipPerTier:3,returnWeightPerTier:1.4});
+const validGuest=name=>CUSTOMERS.includes(name);
+function regularRecord(state,name){
+ if(!state.regulars||typeof state.regulars!=='object')state.regulars={};
+ if(!state.regulars[name])state.regulars[name]={served:0,missed:0,lastSeenDay:0};
+ return state.regulars[name];
+}
+export function regularLevel(state,name){
+ if(!validGuest(name))return 0;
+ const entry=state.regulars?.[name];if(!entry)return 0;
+ const trust=Math.max(0,Math.max(0,entry.served||0)-2*Math.max(0,entry.missed||0));
+ return REGULAR_TIERS.reduce((level,threshold,i)=>trust>=threshold?i:level,0);
+}
+export function regularOverview(state){
+ return CUSTOMERS.map(name=>{
+  const entry=state.regulars?.[name]||{served:0,missed:0,lastSeenDay:0};
+  const served=Math.max(0,entry.served||0),missed=Math.max(0,entry.missed||0);
+  const trust=Math.max(0,served-2*missed),tier=regularLevel(state,name);
+  return{name,served,missed,trust,tier,next:tier>=REGULAR_TIERS.length-1?null:REGULAR_TIERS[tier+1],
+   tipBonus:tier*REGULARS.tipPerTier,patienceBonus:tier*REGULARS.patiencePerTier,lastSeenDay:entry.lastSeenDay||0};
+ }).sort((a,b)=>b.tier-a.tier||b.trust-a.trust||b.served-a.served||a.name.localeCompare(b.name,'zh'));
+}
+export function pickGuest(state,roll){
+ const r=Math.max(0,Math.min(.999999999999,Number.isFinite(roll)?roll:0));
+ const weights=CUSTOMERS.map(name=>1+regularLevel(state,name)*REGULARS.returnWeightPerTier);
+ const total=weights.reduce((a,b)=>a+b,0);let sample=r*total;
+ for(let i=0;i<CUSTOMERS.length;i++){sample-=weights[i];if(sample<0)return CUSTOMERS[i]}
+ return CUSTOMERS.at(-1);
+}
+function recordRegularOutcome(state,name,served){
+ if(!validGuest(name))return 0;
+ const entry=regularRecord(state,name),tier=regularLevel(state,name);
+ if(served)entry.served=Math.min(1e6,entry.served+1);
+ else entry.missed=Math.min(1e6,entry.missed+1);
+ entry.lastSeenDay=state.day;
+ return tier;
+}
 export const DAILY_FEATURE=Object.freeze({fee:38,weight:3,markup:.18});
 export const DEFAULT_PANTRY={tea:7,lemon:7,bread:6,berries:6,lettuce:7,tomato:9,coffee:2,milk:2,pasta:0,cheese:0,rice:0,mushroom:0,cream:0,eggs:0};
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,Number.isFinite(n)?n:min));
@@ -46,9 +85,9 @@ export function prepDuration(state,recipe){return +(recipe.prep/Math.pow(1.18,st
 export function upgradePrice(state,id){const item=byId(UPGRADES,id);return item?Math.round(item.base*Math.pow(1.7,state.upgrades[id]||0)):null;}
 export function createGame(seed=20261105){
  return {version:SAVE_VERSION,seed:integer(seed,0,4294967295)>>>0,day:1,phase:'planning',money:270,rep:65,xp:0,totalServed:0,totalMissed:0,
- pantry:{...DEFAULT_PANTRY},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
+ pantry:{...DEFAULT_PANTRY},regulars:{},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
  elapsed:0,duration:110,scheduled:[],orders:[],idSeq:0,
- today:{served:0,missed:0,revenue:0,tips:0,spent:0,staffTraining:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0},
+ today:{served:0,missed:0,revenue:0,tips:0,spent:0,staffTraining:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0,regularBonus:0,regularsServed:0},
  lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0,platingPerfect:0,platingGood:0,platingAttempts:0,platingBestStreak:0,platingStreak:0,
  assistantHired:false,assistantCooldown:0,assistantServed:0,todayAssistantServed:0,
   assistantXp:0,assistantTrainedDay:0,assistantTrainingSessions:0,assistantTrainingTotal:0,assistantShiftWage:0,
@@ -248,9 +287,9 @@ export function startDay(state){
  state.orders=[];state.scheduled=[];state.elapsed=0;state.duration=0;
  for(let i=0;i<count;i++){
   const recipe=pickWalkInDish(state,available);
-  const customer=CUSTOMERS[Math.floor(rng(state)*CUSTOMERS.length)];
+  const customer=pickGuest(state,rng(state));
   const arrival=3+i*8.7+rng(state)*2.3;
-  const patience=34+rng(state)*14+(state.upgrades.ambience||0)*8;
+  const patience=34+rng(state)*14+(state.upgrades.ambience||0)*8+regularLevel(state,customer)*REGULARS.patiencePerTier;
   state.scheduled.push({id:++state.idSeq,recipe:recipe.id,customer,arrival:+arrival.toFixed(2),patience:+patience.toFixed(1),mood:Math.floor(rng(state)*5)});
  }
  if(state.contract?.status==='accepted'&&state.contract.day===state.day){
