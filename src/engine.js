@@ -329,9 +329,11 @@ export function serveOrder(state,id,{platingScore=null}={}){
  const quality=order.patience/Math.max(1,order.maxPatience);
  const charged=salePrice(state,recipe,order.contract);
  const specialBonus=charged-recipe.price;
+ const loyaltyTier=order.contract?0:regularLevel(state,order.customer);
+ const regularBonus=loyaltyTier*REGULARS.tipPerTier;
  const tip=Math.round(charged*((quality>.5?.13:.05)+(state.upgrades.tips||0)*.05));
  const plating=platingResult(state.assistantAction?null:platingScore,charged);
- const gain=charged+tip+plating.bonus;
+ const gain=charged+tip+plating.bonus+regularBonus;
  state.money+=gain;state.xp+=Math.ceil(recipe.price*.65)+Math.round(quality*12)+plating.xpBonus;
  state.rep=clamp(state.rep+(quality>.33?1:-1)+plating.repBonus,0,100);
  if(plating.grade!=='standard'){
@@ -341,12 +343,13 @@ export function serveOrder(state,id,{platingScore=null}={}){
   state.platingStreak=plating.grade==='perfect'?Math.min(1000,(state.platingStreak||0)+1):0;
   state.platingBestStreak=Math.max(state.platingBestStreak||0,state.platingStreak);
  }
- state.today.served++;state.today.revenue+=charged;state.today.tips+=tip+plating.bonus;state.today.platingBonus=(state.today.platingBonus||0)+plating.bonus;state.totalServed++;
+ state.today.served++;state.today.revenue+=charged;state.today.tips+=tip+plating.bonus+regularBonus;state.today.regularBonus=(state.today.regularBonus||0)+regularBonus;state.today.platingBonus=(state.today.platingBonus||0)+plating.bonus;state.totalServed++;
  if(specialBonus>0){
   state.today.specialBonus=(state.today.specialBonus||0)+specialBonus;
   state.today.specialServed=(state.today.specialServed||0)+1;
   state.specialServed=(state.specialServed||0)+1;
  }
+ if(!order.contract){recordRegularOutcome(state,order.customer,true);state.today.regularsServed=(state.today.regularsServed||0)+1;}
  if(state.assistantAction){state.assistantServed++;state.todayAssistantServed++;}
  let contractBonus=0,depositRefund=0,contractCompleted=false;
  const contract=state.contract;
@@ -362,7 +365,7 @@ export function serveOrder(state,id,{platingScore=null}={}){
   }
  }
  state.orders.splice(index,1);
- return{ok:true,recipe,tip,gain,quality,plating,salePrice:charged,specialBonus,contractCompleted,contractBonus,depositRefund};
+ return{ok:true,recipe,tip,gain,quality,plating,salePrice:charged,specialBonus,regularBonus,loyaltyTier,contractCompleted,contractBonus,depositRefund};
 }
 // Each helper action must use the normal cooking/serving rules. No ingredients,
 // money or chef slots are granted by automation.
@@ -390,6 +393,7 @@ function missOrder(state,index){
  state.today.missed++;state.totalMissed++;
  state.rep=clamp(state.rep-3,0,100);
  if(order.contract)failContract(state);
+ else recordRegularOutcome(state,order.customer,false);
  state.orders.splice(index,1);return order;
 }
 export function finishDay(state){
@@ -403,6 +407,7 @@ export function finishDay(state){
   contractRequired:state.contract?.count||0,
   specialDish:state.dailySpecial||null,
   specialBonus:state.today.specialBonus||0,specialServed:state.today.specialServed||0,
+  regularBonus:state.today.regularBonus||0,regularsServed:state.today.regularsServed||0,
   platingBonus:state.today.platingBonus||0,platingPerfect:state.platingPerfect||0,
   rep:state.rep,balance:state.money};
  state.history.push(summary);state.history=state.history.slice(-24);
@@ -437,7 +442,7 @@ export function advance(state,seconds){
 export function nextDay(state){
  if(state.phase!=='summary')return false;
  state.day++;state.phase='planning';state.elapsed=0;state.duration=110;state.orders=[];state.scheduled=[];
- state.today={served:0,missed:0,revenue:0,tips:0,spent:0,staffTraining:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0};state.dailySpecial=null;state.assistantHired=false;state.assistantCooldown=0;state.assistantShiftWage=0;state.todayAssistantServed=0;state.contract=null;return true;
+ state.today={served:0,missed:0,revenue:0,tips:0,spent:0,staffTraining:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0,regularBonus:0,regularsServed:0};state.dailySpecial=null;state.assistantHired=false;state.assistantCooldown=0;state.assistantShiftWage=0;state.todayAssistantServed=0;state.contract=null;return true;
 }
 export function achievements(state){
  return [
@@ -456,7 +461,9 @@ export function achievements(state){
   {id:'plating',name:'摆盘艺术家',note:'完成 5 次完美摆盘',earned:(state.platingPerfect||0)>=5},
   {id:'streak',name:'手感正佳',note:'连续 3 次完美摆盘',earned:(state.platingBestStreak||0)>=3},
   {id:'marketer',name:'今日推荐主厨',note:'成功举办 5 次餐厅主推活动',earned:(state.specialsLaunched||0)>=5},
-  {id:'favorite',name:'街区招牌',note:'累计卖出 25 份主推菜',earned:(state.specialServed||0)>=25}
+  {id:'favorite',name:'街区招牌',note:'累计卖出 25 份主推菜',earned:(state.specialServed||0)>=25},
+  {id:'welcome',name:'邻里熟客',note:'至少一名顾客成为 2 级熟客',earned:regularOverview(state).some(x=>x.tier>=2)},
+  {id:'friends',name:'街角的人情味',note:'培养至少四位 1 级熟客',earned:regularOverview(state).filter(x=>x.tier>=1).length>=4}
  ];
 }
 export function serialize(state){return JSON.stringify(state);}
@@ -468,6 +475,14 @@ export function restore(raw){
   for(const k of ['day','money','xp','totalServed','totalMissed','idSeq'])d[k]=integer(val[k]??d[k],k==='day'?1:0,k==='day'?1000:1e9);
   d.seed=integer(val.seed??20261105,0,4294967295)>>>0;d.rep=integer(val.rep??65,0,100);
   d.lastAidDay=integer(val.lastAidDay??0,0,1000);
+  if(val.regulars&&typeof val.regulars==='object'&&!Array.isArray(val.regulars)){
+   for(const name of CUSTOMERS){
+    const rec=val.regulars[name];
+    if(!rec||typeof rec!=='object'||Array.isArray(rec))continue;
+    const served=integer(rec.served??0,0,1e6),missed=integer(rec.missed??0,0,1e6);
+    if(served||missed)d.regulars[name]={served,missed,lastSeenDay:integer(rec.lastSeenDay??0,0,1000)};
+   }
+  }
   d.assistantHired=val.assistantHired===true;d.assistantCooldown=clamp(val.assistantCooldown??0,0,ASSISTANT.cooldown);
   d.assistantServed=integer(val.assistantServed??0,0,1e9);d.todayAssistantServed=integer(val.todayAssistantServed??0,0,1e9);d.assistantAction=false;
    d.assistantXp=integer(val.assistantXp??0,0,STAFF_CAREER.maxXp);
@@ -513,6 +528,7 @@ export function restore(raw){
     contractDelivered:integer(h.contractDelivered??0,0,4),contractRequired:integer(h.contractRequired??0,0,4),
     platingBonus:integer(h.platingBonus??0),platingPerfect:integer(h.platingPerfect??0),
     specialDish:recipeById(h.specialDish)?h.specialDish:null,specialBonus:integer(h.specialBonus??0),specialServed:integer(h.specialServed??0),
+    regularBonus:integer(h.regularBonus??0),regularsServed:integer(h.regularsServed??0),
     rep:integer(h.rep,0,100),balance:integer(h.balance)
   })):[];
   d.lastSummary=d.phase==='summary'?d.history.at(-1)||null:null;
