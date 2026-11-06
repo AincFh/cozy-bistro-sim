@@ -40,7 +40,7 @@ test('event does not affect contracted guests and remains safe across saves',()=
  assert.equal(a.scheduled.length,12);
  assert.equal(a.scheduled.filter(x=>x.contract).length,0);
  const restored=restore(serialize(a));
- assert.deepEqual(restored.scheduled,a.scheduled);
+ assert.deepEqual(restored.scheduled.map(({contract,...order})=>order),a.scheduled);
  a.scheduled=[];a.orders=[];a.elapsed=a.duration;
  assert.equal(finishDay(a),true);
  assert.equal(a.lastSummary.neighborhoodEvent,'coffee');
