@@ -33,8 +33,36 @@ function eventsFeed(events){
  if(events.some(x=>x.type==='ready')){toast('料理制作完成，记得及时上菜！','success');return}
  if(events.some(x=>x.type==='arrival')){toast('有新的客人走进了小店。','order');}
 }
+let previousOrderStructure='';
 function updateOrderHTML(){
  const list=$('orderList');
+ // Re-render cards only when content or available actions actually change.
+ // Previously every 170ms refresh replaced the button DOM under a user's cursor.
+ // Keep the cards mounted while continuously updating timer/progress children.
+ const structure=JSON.stringify([
+  state.phase,state.dailySpecial,state.scheduled.length,state.today.served,
+  state.today.revenue,state.today.tips,slots(state),
+  state.orders.map(o=>[o.id,o.status,o.customer,o.recipe,o.contract,o.mood,
+   regularLevel(state,o.customer),o.maxPatience]),
+  Object.entries(state.pantry)
+ ]);
+ if(state.phase==='open'&&structure===previousOrderStructure&&state.orders.length){
+  let allMounted=true;
+  for(const o of state.orders){
+   const card=list.querySelector('[data-order-card="'+o.id+'"]');
+   if(!card){allMounted=false;break}
+   const cooking=o.status==='cooking';
+   const ratio=Math.max(0,o.patience)/Math.max(1,o.maxPatience);
+   const progress=Math.max(0,Math.min(100,Math.round(cooking?
+    (1-o.cookLeft/Math.max(.1,o.cookTotal))*100:ratio*100)));
+   const bar=card.querySelector('.order-progress i');
+   if(bar){bar.style.width=progress+'%';bar.classList.toggle('danger',!cooking&&ratio<.27)}
+   const time=card.querySelector('.order-progress b');
+   if(time)time.textContent=Math.ceil(cooking?o.cookLeft:Math.max(0,o.patience))+'s';
+  }
+  if(allMounted)return;
+ }
+ previousOrderStructure=structure;
  if(state.phase==='planning'){
   list.innerHTML="<div class='empty-orders'><div class='empty-symbol'>✦</div><strong>今天的小店，正在准备中</strong><p>库存、升级与菜谱都已就位。点击下方按钮，开始迎接客人。</p></div>";
   return;
@@ -59,7 +87,7 @@ function updateOrderHTML(){
   const stateLabel=(order.contract?'团体订餐 · ':loyalty>0?'熟客 Lv.'+loyalty+' · ':'')+(ready?'等待上菜':cooking?'厨师制作中':'等待点餐');
   const action=ready?'serve':'cook';
   const avatarColor=['#e1ab96','#b9bc98','#9db5a3','#c9b0ca','#e1c295'][order.mood%5];
-  return "<article class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>"+(loyalty>0?"熟客 Lv."+loyalty+" · ":"")+"订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>"+(state.dailySpecial===dish.id&&!order.contract?"今日主推 · ":"")+"◈ "+salePrice(state,dish,order.contract)+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button>"+(ready?"<button class='plating-action' data-order='"+order.id+"' data-action='plate'>精致摆盘</button>":"")+"</div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
+  return "<article data-order-card='"+order.id+"' class='order-card "+(ready?'ready':cooking?'cooking':'')+"'><div class='order-top'><div class='guest'><div class='guest-portrait' style='background:"+avatarColor+"'>"+safe(order.customer.slice(0,1))+"</div><div><span class='guest-name'>"+safe(order.customer)+"</span><span class='guest-sub'>"+(loyalty>0?"熟客 Lv."+loyalty+" · ":"")+"订单 #"+String(order.id).padStart(3,'0')+"</span></div></div><span class='order-state'>"+stateLabel+"</span></div><div class='order-body'><div class='dish'><span class='dish-icon'>"+dish.emoji+"</span><div><strong>"+safe(dish.name)+"</strong><small>"+(state.dailySpecial===dish.id&&!order.contract?"今日主推 · ":"")+"◈ "+salePrice(state,dish,order.contract)+" · "+Math.round(dish.prep)+"s 制作</small></div></div><button class='order-action "+(ready?'ready':'')+"' data-order='"+order.id+"' data-action='"+action+"' "+(!ready&&!canCook?'disabled':'')+">"+label+"</button>"+(ready?"<button class='plating-action' data-order='"+order.id+"' data-action='plate'>精致摆盘</button>":"")+"</div><div class='order-progress'><span>"+(cooking?'制作进度':'剩余耐心')+"</span><div><i class='"+(!cooking&&ratio<.27?'danger':'')+"' style='width:"+Math.round(pPercent)+"%'></i></div><b>"+(cooking?Math.ceil(order.cookLeft):Math.ceil(patience))+"s</b></div></article>";
  }).join('');
 }
 function render(){
