@@ -48,9 +48,10 @@ export function createGame(seed=20261105){
  return {version:SAVE_VERSION,seed:integer(seed,0,4294967295)>>>0,day:1,phase:'planning',money:270,rep:65,xp:0,totalServed:0,totalMissed:0,
  pantry:{...DEFAULT_PANTRY},upgrades:{stove:0,counter:0,ambience:0,marketing:0,tips:0},
  elapsed:0,duration:110,scheduled:[],orders:[],idSeq:0,
- today:{served:0,missed:0,revenue:0,tips:0,spent:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0},
+ today:{served:0,missed:0,revenue:0,tips:0,spent:0,staffTraining:0,contractBonus:0,platingBonus:0,specialBonus:0,specialServed:0},
  lastSummary:null,history:[],sound:true,gameSpeed:1,lastAidDay:0,platingPerfect:0,platingGood:0,platingAttempts:0,platingBestStreak:0,platingStreak:0,
  assistantHired:false,assistantCooldown:0,assistantServed:0,todayAssistantServed:0,
+  assistantXp:0,assistantTrainedDay:0,assistantTrainingSessions:0,assistantTrainingTotal:0,assistantShiftWage:0,
  contract:null,contractsWon:0,contractsLost:0,dailySpecial:null,specialsLaunched:0,specialServed:0};
 }
 export function rng(state){state.seed=(Math.imul(state.seed,1664525)+1013904223)>>>0;return state.seed/4294967296;}
@@ -89,17 +90,48 @@ function failContract(state){
  state.rep=clamp(state.rep-4,0,100);return true;
 }
 export const ASSISTANT = Object.freeze({name:'小森 · 兼职料理助手',minimumDay:2,wage:98,cooldown:4.5,initialDelay:3.2});
+export const STAFF_CAREER=Object.freeze({levels:[0,5,16,34,60],trainingXp:8,maxXp:60,trainingBase:140,trainingStep:70,wageStep:12,cooldownStep:.38});
+export function assistantLevel(state){
+ const xp=Number.isFinite(state.assistantXp)?Math.min(STAFF_CAREER.maxXp,Math.max(0,state.assistantXp)):0;
+ return STAFF_CAREER.levels.reduce((level,threshold,i)=>xp>=threshold?i+1:level,1);
+}
+export function assistantCooldownFor(state){return +(ASSISTANT.cooldown-(assistantLevel(state)-1)*STAFF_CAREER.cooldownStep).toFixed(2);}
+export function assistantWage(state){return ASSISTANT.wage+(assistantLevel(state)-1)*STAFF_CAREER.wageStep;}
+export function assistantTrainingPrice(state){return STAFF_CAREER.trainingBase+(assistantLevel(state)-1)*STAFF_CAREER.trainingStep;}
+export function canTrainAssistant(state){
+ return state.phase==='planning'&&state.day>=ASSISTANT.minimumDay&&state.assistantTrainedDay!==state.day&&
+  assistantLevel(state)<STAFF_CAREER.levels.length&&state.money>=assistantTrainingPrice(state);
+}
+export function trainAssistant(state){
+ if(state.phase!=='planning')return{ok:false,error:'必须在营业前进行培训'};
+ if(state.day<ASSISTANT.minimumDay)return{ok:false,error:'第 2 天起开放员工培训'};
+ if(state.assistantTrainedDay===state.day)return{ok:false,error:'每个营业日只能培训一次'};
+ if(assistantLevel(state)>=STAFF_CAREER.levels.length)return{ok:false,error:'兼职助手已达到最高技能等级'};
+ const price=assistantTrainingPrice(state);
+ if(state.money<price)return{ok:false,error:'资金不足，无法支付培训费用'};
+ state.money-=price;state.today.spent+=price;state.today.staffTraining=(state.today.staffTraining||0)+price;
+ state.assistantXp=Math.min(STAFF_CAREER.maxXp,(state.assistantXp||0)+STAFF_CAREER.trainingXp);
+ state.assistantTrainedDay=state.day;state.assistantTrainingSessions=(state.assistantTrainingSessions||0)+1;
+ state.assistantTrainingTotal=(state.assistantTrainingTotal||0)+price;
+ return{ok:true,cost:price,level:assistantLevel(state),xp:state.assistantXp};
+}
+function earnAssistantXp(state){
+ // No ingredients/serve action succeeded => no staff XP.
+ state.assistantXp=Math.min(STAFF_CAREER.maxXp,(state.assistantXp||0)+1);
+}
 export function canHireAssistant(state){
- return state.phase==='planning'&&state.day>=ASSISTANT.minimumDay&&!state.assistantHired&&state.money>=ASSISTANT.wage;
+ return state.phase==='planning'&&state.day>=ASSISTANT.minimumDay&&!state.assistantHired&&state.money>=assistantWage(state);
 }
 export function hireAssistant(state){
  if(state.phase!=='planning')return {ok:false,error:'只能在营业前安排兼职'};
  if(state.day<ASSISTANT.minimumDay)return {ok:false,error:'第 2 天起开放兼职排班'};
  if(state.assistantHired)return {ok:false,error:'今天已经安排了兼职助手'};
- if(state.money<ASSISTANT.wage)return {ok:false,error:'资金不足，无法支付兼职工资'};
- state.money-=ASSISTANT.wage;state.today.spent+=ASSISTANT.wage;
- state.assistantHired=true;state.assistantCooldown=ASSISTANT.initialDelay;
- return {ok:true,wage:ASSISTANT.wage,assistant:ASSISTANT.name};
+ const wage=assistantWage(state);
+ if(state.money<wage)return {ok:false,error:'资金不足，无法支付兼职工资'};
+ state.money-=wage;state.today.spent+=wage;
+ state.assistantHired=true;state.assistantShiftWage=wage;
+ state.assistantCooldown=Math.max(1,ASSISTANT.initialDelay-(assistantLevel(state)-1)*.2);
+ return {ok:true,wage,assistant:ASSISTANT.name,level:assistantLevel(state)};
 }
 export const SUPPORT_ITEMS={tea:3,lemon:3,bread:3,berries:3,lettuce:3,tomato:3};
 export function canClaimSupport(state){
