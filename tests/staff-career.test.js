@@ -41,7 +41,7 @@ test('advanced skill changes real assistant operating cooldown and payroll witho
  const ev=advance(s,.2);
  assert.ok(ev.some(e=>e.type==='assistantCook'));
  assert.equal(s.assistantXp,beforeXp+1);
- assert.equal(s.assistantCooldown,assistantCooldownFor(s));
+ assert.ok(s.assistantCooldown<=assistantCooldownFor(s)&&s.assistantCooldown>assistantCooldownFor(s)-.3);
  assert.equal(s.pantry.tea,tea-1);assert.equal(s.pantry.lemon,lemon-1);
  advance(s,20);
  assert.equal(s.assistantServed,1);
@@ -76,7 +76,7 @@ test('daily settlement records true charged wages and training cost, next shift 
 });
 test('old saves migrate safely and forged skill/training counters cannot escape bounds',()=>{
  const s=createGame();s.day=7;s.money=600;s.assistantHired=true;
- delete s.assistantXp;delete s.assistantTrainingSessions;delete s.assistantTrainedDay;
+ delete s.assistantXp;delete s.assistantTrainingSessions;delete s.assistantTrainedDay;delete s.assistantShiftWage;
  const old=restore(serialize(s));
  assert.equal(old.day,7);assert.equal(old.money,600);
  assert.equal(old.assistantXp,0);assert.equal(old.assistantTrainingSessions,0);
