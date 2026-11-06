@@ -147,7 +147,7 @@ test('business ledger stores actual loyalty income and it carries across days sa
 test('relationships, guest earnings and earned achievements survive save/restore',()=>{
   const s=createGame(31);
   for(const [i,name] of CUSTOMERS.entries())
-    if(i<4)s.regulars[name]={served:8,missed:i,lastSeenDay:4};
+    if(i<4)s.regulars[name]={served:8,missed:0,lastSeenDay:4};
   s.day=7;
   s.today.regularBonus=12;s.today.regularsServed=3;
   const copy=restore(serialize(s));
